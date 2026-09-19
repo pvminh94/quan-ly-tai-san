@@ -1,5 +1,5 @@
 # Runtime data (không commit dữ liệu và secret)
-data/
+data/*
 !data/.gitkeep
 *.log
 .DS_Store
