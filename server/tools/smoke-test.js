@@ -457,6 +457,20 @@ async function testReports() {
   const docxOut = await POST('/api/reports/render', { templateId, format: 'docx' }, { raw: true });
   check('DOCX là tệp ZIP hợp lệ', docxOut.body.slice(0, 2).toString() === 'PK', docxOut.body.slice(0, 4).toString('hex'));
 
+  // Mọi mẫu báo cáo hệ thống phải kết xuất được dữ liệu (không rỗng) với tham số rỗng
+  const allTpl = await GET('/api/entities/report_templates?limit=50');
+  let emptyTemplates = [];
+  let rendered = 0;
+  for (const t of allTpl.json.data || []) {
+    const r = await POST('/api/reports/render', { templateId: t.id, format: 'html' }, { raw: true });
+    const html = r.body.toString();
+    const m = /(\d+)\s*dòng/.exec(html);
+    const rows = m ? Number(m[1]) : -1;
+    if (r.status === 200 && rows > 0) rendered++;
+    else emptyTemplates.push(t.code + ' (' + (rows < 0 ? 'không đọc được' : rows + ' dòng') + ')');
+  }
+  check('Tất cả mẫu báo cáo hệ thống đều có dữ liệu', emptyTemplates.length === 0, rendered + '/' + (allTpl.json.data || []).length + ' mẫu có dòng' + (emptyTemplates.length ? ' • rỗng: ' + emptyTemplates.join(', ') : ''));
+
   const clone = await POST('/api/reports/templates/clone', { id: templateId, name: 'Bản sao kiểm thử E2E' });
   check('Nhân bản mẫu báo cáo', clone.status === 200 || clone.status === 201, 'status=' + clone.status);
   const cloneId = (clone.json.data || {}).id;

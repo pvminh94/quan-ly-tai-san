@@ -320,9 +320,13 @@ function applyRowParams(rows, design, params) {
   designParams.forEach((def) => {
     const value = p[def.name];
     const empty = value === undefined || value === null || value === '';
-    if (empty ) return;
+    if (empty) return;
     if (def.applyTo && def.op) {
       const field = def.applyTo;
+      // Nếu không dòng nào có trường này (nguồn dữ liệu không hỗ trợ tham số),
+      // bỏ qua tham số thay vì lọc sạch toàn bộ dữ liệu.
+      const fieldExists = out.some((r) => getByPath(r, field) !== undefined);
+      if (!fieldExists) return;
       out = out.filter((r) => {
         const rv = getByPath(r, field);
         switch (def.op) {

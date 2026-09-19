@@ -29,7 +29,7 @@
 | **Nghiệp vụ** | 22 phân hệ: tài sản, danh mục, vị trí/kho, nhà cung cấp, hợp đồng, cấp phát – thu hồi, điều chuyển, bảo trì – sửa chữa, khấu hao, kiểm kê, thanh lý, bảo hành, tài liệu đính kèm, người dùng, vai trò, nhật ký, phiên, thông báo, mẫu báo cáo… |
 | **Quy trình phê duyệt** | Phiếu điều chuyển / thanh lý / bảo trì / cấp phát có luồng trạng thái: lập → chờ duyệt → duyệt/từ chối → hoàn thành, ghi vết người duyệt & lý do từ chối |
 | **Khấu hao** | 6 phương pháp (đường thẳng, số dư giảm dần, số dư giảm dần có điều chỉnh, theo sản lượng, theo tỷ lệ, không khấu hao), chạy khấu hao theo kỳ, xem trước, ghi sổ, chứng từ bảng tính khấu hao |
-| **Trình thiết kế báo cáo** | Kéo–thả, 8 dải in (band), 13 loại phần tử, biểu thức & hàm tổng hợp, nhóm – sắp xếp – lọc – tham số, khổ giấy A4/A5/A3/Letter/Legal/hoá đơn, undo/redo, xuất HTML/CSV/Excel/Word, xem trước + in |
+| **Trình thiết kế báo cáo** | Kéo–thả, 8 dải in (band), 13 loại phần tử, biểu thức & hàm tổng hợp, nhóm – sắp xếp – lọc – tham số, khổ giấy A4/A5/A3/Letter/Legal/hoá đơn, lưới & bám lưới, ghost preview dữ liệu mẫu, undo/redo, xuất HTML/CSV/Excel/Word, xem trước + in |
 | **Chứng từ in** | 9 mẫu chứng từ khổ A4 chuẩn văn bản hành chính Việt Nam: biên bản bàn giao, biên bản điều chuyển, phiếu bảo trì, biên bản thanh lý, biên bản kiểm kê, phiếu bảo hành, nhãn/tem tài sản, bảng tính khấu hao, bảng kê tài sản theo hợp đồng |
 | **Quản trị** | Ma trận phân quyền 23 phân hệ × 6 hành động, phạm vi dữ liệu (toàn hệ thống / phòng ban / cá nhân), nhật ký thao tác, quản lý phiên đăng nhập, sao lưu – phục hồi, xuất CSDL JSON & script SQL (MySQL/PostgreSQL), thùng rác & khôi phục |
 | **Giao diện** | SPA thuần JavaScript, tiếng Việt 100%, sáng/tối, thu gọn menu, Ctrl+K tìm kiếm nhanh, thông báo, biểu đồ SVG tự vẽ, biểu mẫu sinh tự động từ metadata, in ấn chuyên nghiệp |
@@ -104,10 +104,10 @@ node server/tools/smoke-test.js --keep          # giữ lại dữ liệu kiểm
 
 # Kiểm thử giao diện (cần jsdom, chỉ dùng khi kiểm thử):
 npm install --no-save jsdom
-node server/tools/ui-test.js 3000               # duyệt 34 đường dẫn, bắt lỗi JS
+node server/tools/ui-test.js 3000               # duyệt 34 đường dẫn, 50 phép kiểm tra, bắt lỗi JS
 ```
 
-`smoke-test.js` kiểm tra: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất), 9 chứng từ in, và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
+`smoke-test.js` gồm **152 phép kiểm tra**: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất, mọi mẫu hệ thống phải ra dữ liệu), 9 chứng từ in, và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
 
 ---
 
@@ -163,23 +163,26 @@ Mở từ **Báo cáo → 🎨 Thiết kế** (hoặc đường dẫn `#/reports
 ### 6.2 13 loại phần tử
 Trường dữ liệu · Văn bản tĩnh · Công thức/Tổng hợp · Đường kẻ · Hình chữ nhật · Hình ảnh/Logo · Số trang · Trang X/Y · Ngày giờ in · Thông tin hệ thống · Khối văn bản dài · Mã vạch Code128 · Mã QR.
 
-### 6.3 Định dạng & biểu thức
+### 6.3 Tham số theo nguồn dữ liệu
+Mỗi mẫu hệ thống được gắn bộ tham số phù hợp với nguồn dữ liệu: tài sản lọc theo *Từ/Đến ngày mua* + *Phòng ban*; khấu hao/sổ tài sản lọc theo *Từ/Đến kỳ (YYYY-MM)*; báo cáo theo phòng ban lọc theo *Phòng ban*; lịch sử bảo trì lọc theo khoảng ngày thực hiện; các báo cáo khác lọc theo từ khoá. Tham số không áp dụng được cho nguồn dữ liệu sẽ tự động bị bỏ qua thay vì lọc sạch dữ liệu.
+
+### 6.4 Định dạng & biểu thức
 - Định dạng: `text`, `money`, `number`, `percent`, `date`, `datetime`, `bool` với số chữ số thập phân, tiền tố/hậu tố, chữ hoa, canh lề ngang/dọc, viền, màu chữ/nền, gạch chân, in nghiêng/đậm.
 - Token trong chuỗi: `{field}`, `{company.name}`, `{params.x}`, `{date}`, `{time}`, `{page}`, `{pages}`, `{rowIndex}`, `{footer}`.
 - Hàm tổng hợp: `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `COUNT_DISTINCT`, `FIRST`, `LAST`, `CONCAT` với phạm vi `report` / `group` / `page`.
 
-### 6.4 Thao tác
+### 6.5 Thao tác
 Kéo từ danh sách trường (49 trường với dataset *assets*) hoặc từ thanh công cụ vào dải in; kéo–thả di chuyển, 8 tay nắm đổi kích thước, chọn nhiều đối tượng, canh lề & phân bố đều, nhân bản, thứ tự lớp, **lưới + bám lưới**, **ghost preview** (xem dữ liệu mẫu thật mờ phía sau), phóng to/thu nhỏ, hoàn tác/làm lại.
 
 Phím tắt: `Ctrl+S` lưu · `Ctrl+Z` / `Ctrl+Y` hoàn tác/làm lại · `Ctrl+D` nhân bản · `Ctrl+C/V` sao chép/dán · `F5` xem trước · mũi tên di chuyển 1 mm (`Shift` + mũi tên 10 mm) · `Delete` xoá.
 
-### 6.5 Tab bên phải
+### 6.6 Tab bên phải
 **Thuộc tính** (định dạng, dữ liệu, khung viền) · **Dữ liệu** (nguồn dữ liệu, nhóm, sắp xếp, lọc, tham số) · **Trang** (khổ giấy, hướng giấy, lề, số dòng, tuỳ chọn lặp tiêu đề cột) · **Quy tắc** (ẩn phần tử rỗng, chữ hoa, công thức có điều kiện).
 
-### 6.6 Kết xuất
+### 6.7 Kết xuất
 Xem trước trong khung nhúng · In/PDF qua hộp thoại in của trình duyệt · **HTML** (bản in phân trang) · **CSV** · **Excel (.xlsx)** · **Word (.docx)** — hai định dạng Office được tạo trực tiếp bằng bộ đóng gói ZIP nội bộ, không cần thư viện ngoài.
 
-### 6.7 Hợp đồng dữ liệu (dành cho lập trình viên)
+### 6.8 Hợp đồng dữ liệu (dành cho lập trình viên)
 ```jsonc
 // POST /api/reports/render
 {

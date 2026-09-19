@@ -430,11 +430,61 @@ function buildDesign(spec) {
       { id: 'r4', type: 'text', x: (contentWidth * 2) / 3, y: 12, w: contentWidth / 3, h: 16, text: 'Giám đốc\n(Ký, họ tên, đóng dấu)', align: 'center', fontSize: 9, wrap: true, color: '#334155' },
     ],
   };
-  base.parameters = [
-    { name: 'fromDate', label: 'Từ ngày', type: 'date', applyTo: 'purchaseDate', op: '>=', required: false, default: '' },
-    { name: 'toDate', label: 'Đến ngày', type: 'date', applyTo: 'purchaseDate', op: '<=', required: false, default: '' },
-    { name: 'departmentId', label: 'Phòng ban', type: 'ref', ref: 'departments', applyTo: 'departmentId', op: '=', required: false, default: '' },
-  ];
+  const deptParam = { name: 'departmentId', label: 'Phòng ban', type: 'ref', ref: 'departments', applyTo: 'departmentId', op: '=', required: false, default: '' };
+  // Tham số phải phù hợp với từng nguồn dữ liệu (tránh lọc theo trường không tồn tại)
+  const parameterSets = {
+    assets: [
+      { name: 'fromDate', label: 'Từ ngày mua', type: 'date', applyTo: 'purchaseDate', op: '>=', required: false, default: '' },
+      { name: 'toDate', label: 'Đến ngày mua', type: 'date', applyTo: 'purchaseDate', op: '<=', required: false, default: '' },
+      deptParam,
+    ],
+    v_asset_full: [
+      { name: 'fromDate', label: 'Từ ngày mua', type: 'date', applyTo: 'purchaseDate', op: '>=', required: false, default: '' },
+      { name: 'toDate', label: 'Đến ngày mua', type: 'date', applyTo: 'purchaseDate', op: '<=', required: false, default: '' },
+      deptParam,
+    ],
+    depreciations: [
+      { name: 'fromPeriod', label: 'Từ kỳ (YYYY-MM)', type: 'text', applyTo: 'period', op: '>=', required: false, default: '' },
+      { name: 'toPeriod', label: 'Đến kỳ (YYYY-MM)', type: 'text', applyTo: 'period', op: '<=', required: false, default: '' },
+    ],
+    v_depreciation_by_period: [
+      { name: 'fromPeriod', label: 'Từ kỳ (YYYY-MM)', type: 'text', applyTo: 'period', op: '>=', required: false, default: '' },
+      { name: 'toPeriod', label: 'Đến kỳ (YYYY-MM)', type: 'text', applyTo: 'period', op: '<=', required: false, default: '' },
+    ],
+    v_asset_ledger: [
+      { name: 'fromPeriod', label: 'Từ kỳ (YYYY-MM)', type: 'text', applyTo: 'period', op: '>=', required: false, default: '' },
+      { name: 'toPeriod', label: 'Đến kỳ (YYYY-MM)', type: 'text', applyTo: 'period', op: '<=', required: false, default: '' },
+    ],
+    v_asset_value_by_dept: [
+      { name: 'departmentId', label: 'Phòng ban', type: 'ref', ref: 'departments', applyTo: 'id', op: '=', required: false, default: '' },
+    ],
+    v_user_assets: [deptParam, { name: 'keyword', label: 'Tìm theo họ tên', type: 'text', applyTo: 'fullName', op: 'like', required: false, default: '' }],
+    v_stocktake_result: [{ name: 'stocktakeId', label: 'Đợt kiểm kê', type: 'ref', ref: 'stocktakes', applyTo: 'stocktakeId', op: '=', required: false, default: '' }],
+    maintenances: [
+      { name: 'fromDate', label: 'Từ ngày', type: 'date', applyTo: 'actualDate', op: '>=', required: false, default: '' },
+      { name: 'toDate', label: 'Đến ngày', type: 'date', applyTo: 'actualDate', op: '<=', required: false, default: '' },
+      { name: 'status', label: 'Trạng thái', type: 'text', applyTo: 'status', op: '=', required: false, default: '' },
+    ],
+    v_maintenance_history: [
+      { name: 'fromDate', label: 'Từ ngày', type: 'date', applyTo: 'actualDate', op: '>=', required: false, default: '' },
+      { name: 'toDate', label: 'Đến ngày', type: 'date', applyTo: 'actualDate', op: '<=', required: false, default: '' },
+    ],
+    disposals: [
+      { name: 'fromDate', label: 'Từ ngày', type: 'date', applyTo: 'date', op: '>=', required: false, default: '' },
+      { name: 'toDate', label: 'Đến ngày', type: 'date', applyTo: 'date', op: '<=', required: false, default: '' },
+    ],
+    contracts: [{ name: 'keyword', label: 'Tìm theo số/tên hợp đồng', type: 'text', applyTo: 'name', op: 'like', required: false, default: '' }],
+    warranties: [{ name: 'keyword', label: 'Tìm theo đơn vị bảo hành', type: 'text', applyTo: 'provider', op: 'like', required: false, default: '' }],
+  };
+  base.parameters = parameterSets[spec.dataset] || [];
+  // Dòng mô tả kỳ báo cáo phải khớp với tham số của từng nguồn dữ liệu
+  const titleBand = base.bands.reportTitle;
+  const t4 = titleBand.elements.find((e) => e.id === 't4');
+  if (t4) {
+    if (base.parameters.some((x) => x.name === 'fromDate')) t4.text = 'Kỳ báo cáo: từ ngày {params.fromDate} đến ngày {params.toDate}';
+    else if (base.parameters.some((x) => x.name === 'fromPeriod')) t4.text = 'Kỳ báo cáo: từ {params.fromPeriod} đến {params.toPeriod}';
+    else t4.text = 'Ngày lập báo cáo: {date}';
+  }
   return base;
 }
 
