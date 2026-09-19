@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="description" content="AMS Pro — Hệ thống quản lý tài sản doanh nghiệp: tài sản, khấu hao, cấp phát, điều chuyển, bảo trì, kiểm kê, thanh lý và thiết kế báo cáo."/>
+<title>AMS Pro — Hệ thống Quản lý Tài sản Doanh nghiệp</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232563eb'/%3E%3Cpath d='M20 44 32 18l12 26h-7l-5-12-5 12z' fill='white'/%3E%3C/svg%3E"/>
+<link rel="stylesheet" href="/css/app.css"/>
+</head>
+<body>
+  <!-- ===================== MÀN HÌNH ĐĂNG NHẬP ===================== -->
+  <div id="login-screen" class="login-screen hidden">
+    <div class="login-bg"></div>
+    <div class="login-wrap">
+      <div class="login-hero">
+        <div class="hero-logo">
+          <svg viewBox="0 0 64 64" width="46" height="46"><rect width="64" height="64" rx="14" fill="#2563eb"/><path d="M20 44 32 18l12 26h-7l-5-12-5 12z" fill="#fff"/></svg>
+          <div>
+            <h1>AMS Pro</h1>
+            <p>Hệ thống Quản lý Tài sản Doanh nghiệp</p>
+          </div>
+        </div>
+        <ul class="hero-points">
+          <li><b>Quản lý vòng đời tài sản</b> từ mua sắm, cấp phát, bảo trì đến thanh lý</li>
+          <li><b>Khấu hao tự động</b> theo 5 phương pháp, hạch toán TK 214/642</li>
+          <li><b>Kiểm kê &amp; điều chuyển</b> có phê duyệt, phân quyền chi tiết</li>
+          <li><b>Thiết kế báo cáo</b> kéo thả như Crystal Reports, in PDF/Word/Excel</li>
+        </ul>
+        <div class="hero-stats">
+          <div><b>22</b><span>phân hệ nghiệp vụ</span></div>
+          <div><b>9</b><span>mẫu báo cáo sẵn</span></div>
+          <div><b>6</b><span>vai trò phân quyền</span></div>
+        </div>
+      </div>
+
+      <form class="login-card" id="login-form" autocomplete="on">
+        <h2>Đăng nhập hệ thống</h2>
+        <p class="muted">Sử dụng tài khoản được cấp bởi quản trị viên</p>
+        <div class="field">
+          <label for="username">Tên đăng nhập</label>
+          <input id="username" name="username" type="text" placeholder="vd: admin" required autocomplete="username"/>
+        </div>
+        <div class="field">
+          <label for="password">Mật khẩu</label>
+          <div class="input-group">
+            <input id="password" name="password" type="password" placeholder="••••••••" required autocomplete="current-password"/>
+            <button type="button" class="ghost-btn" id="toggle-password" title="Hiện/ẩn mật khẩu">👁</button>
+          </div>
+        </div>
+        <div class="field row between">
+          <label class="checkbox"><input type="checkbox" id="remember" checked/> <span>Ghi nhớ đăng nhập</span></label>
+          <a href="#" id="show-help" class="link">Quên mật khẩu?</a>
+        </div>
+        <button class="btn primary block lg" type="submit" id="login-btn">Đăng nhập</button>
+        <div id="login-error" class="alert danger hidden"></div>
+
+        <div class="demo-accounts">
+          <div class="muted tiny">Tài khoản demo (bấm để điền nhanh):</div>
+          <div class="chips">
+            <button type="button" class="chip" data-u="admin" data-p="Admin@123">Quản trị viên</button>
+            <button type="button" class="chip" data-u="ketoan.truong" data-p="User@123">Kế toán</button>
+            <button type="button" class="chip" data-u="thukho" data-p="User@123">Thủ kho</button>
+            <button type="button" class="chip" data-u="kythuat.01" data-p="User@123">Kỹ thuật</button>
+            <button type="button" class="chip" data-u="nhanvien.01" data-p="User@123">Nhân viên</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================== ỨNG DỤNG CHÍNH ===================== -->
+  <div id="app" class="app hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <svg viewBox="0 0 64 64" width="32" height="32"><rect width="64" height="64" rx="14" fill="#2563eb"/><path d="M20 44 32 18l12 26h-7l-5-12-5 12z" fill="#fff"/></svg>
+        <div class="brand-text">
+          <b>AMS Pro</b>
+          <span id="brand-company">Quản lý tài sản</span>
+        </div>
+        <button class="icon-btn sidebar-collapse" id="toggle-sidebar" title="Thu gọn menu">«</button>
+      </div>
+      <div class="side-search">
+        <input type="search" id="menu-search" placeholder="Tìm chức năng…" autocomplete="off"/>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="side-foot">
+        <div class="version">
+          <span id="app-version">v1.0.0</span>
+          <span class="dot ok" title="Hệ thống hoạt động bình thường"></span>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" id="open-sidebar">☰</button>
+        <div class="crumbs" id="crumbs"></div>
+        <div class="top-actions">
+          <div class="global-search">
+            <input type="search" id="global-search" placeholder="Tìm nhanh tài sản, mã, serial… (Ctrl+K)" autocomplete="off"/>
+            <div class="search-results hidden" id="search-results"></div>
+          </div>
+          <button class="icon-btn" id="btn-quick-add" title="Thêm nhanh">＋</button>
+          <button class="icon-btn" id="btn-notifications" title="Thông báo">🔔<span class="badge-count hidden" id="notif-count">0</span></button>
+          <button class="icon-btn" id="btn-theme" title="Đổi giao diện sáng/tối">◐</button>
+          <div class="user-menu" id="user-menu">
+            <button class="user-btn" id="user-btn">
+              <span class="avatar" id="user-avatar">A</span>
+              <span class="user-info">
+                <b id="user-name">—</b>
+                <small id="user-role">—</small>
+              </span>
+              <span class="caret">▾</span>
+            </button>
+            <div class="dropdown hidden" id="user-dropdown">
+              <a href="#/profile" data-nav>👤 Trang cá nhân</a>
+              <a href="#/profile?tab=password" data-nav>🔑 Đổi mật khẩu</a>
+              <a href="#/admin/settings" data-nav>⚙️ Cấu hình hệ thống</a>
+              <div class="sep"></div>
+              <a href="#" id="btn-logout">🚪 Đăng xuất</a>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="content" id="content">
+        <div class="page-loading"><div class="spinner"></div><span>Đang tải…</span></div>
+      </div>
+
+      <footer class="appbar-foot">
+        <span id="footer-left">AMS Pro © 2026 — Hệ thống Quản lý Tài sản Doanh nghiệp</span>
+        <span id="footer-right"></span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Khu vực dùng chung -->
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root"></div>
+  <div id="context-menu" class="context-menu hidden"></div>
+  <div id="loading-overlay" class="loading-overlay hidden"><div class="spinner big"></div><span id="loading-text">Đang xử lý…</span></div>
+
+  <script src="/js/core.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/charts.js"></script>
+  <script src="/js/pages.js"></script>
+  <script src="/js/dashboard.js"></script>
+  <script src="/js/designer.js"></script>
+  <script src="/js/admin.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "quan-ly-tai-san",
+  "version": "1.0.0",
+  "private": false,
+  "description": "AMS Pro - Hệ thống quản lý tài sản doanh nghiệp (Asset Management System) tiếng Việt, kèm Report Designer tự thiết kế giống Crystal Reports.",
+  "main": "server/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "seed": "node server/tools/reset-seed.js",
+    "test": "node server/tools/smoke-test.js"
+  },
+  "keywords": [
+    "quan-ly-tai-san",
+    "asset-management",
+    "crystal-reports",
+    "report-designer",
+    "erp",
+    "inventory",
+    "depreciation",
+    "vietnam"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "author": "pvminh94",
+  "license": "MIT"
+}

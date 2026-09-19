@@ -1,0 +1,15 @@
+# Runtime data (không commit dữ liệu và secret)
+data/
+!data/.gitkeep
+*.log
+.DS_Store
+Thumbs.db
+node_modules/
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+*.swp
+tmp/
+backup/
