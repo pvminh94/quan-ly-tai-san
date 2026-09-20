@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="description" content="AMS Pro — Hệ thống quản lý tài sản doanh nghiệp: tài sản, khấu hao, cấp phát, điều chuyển, bảo trì, kiểm kê, thanh lý và thiết kế báo cáo."/>
 <title>AMS Pro — Hệ thống Quản lý Tài sản Doanh nghiệp</title>
+<link rel="manifest" href="/manifest.webmanifest"/>
+<meta name="theme-color" content="#2563eb"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="AMS Pro"/>
+<link rel="apple-touch-icon" href="/icon-192.png"/>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232563eb'/%3E%3Cpath d='M20 44 32 18l12 26h-7l-5-12-5 12z' fill='white'/%3E%3C/svg%3E"/>
 <link rel="stylesheet" href="/css/app.css"/>
 </head>
@@ -71,6 +79,9 @@
 
   <!-- ===================== ỨNG DỤNG CHÍNH ===================== -->
   <div id="app" class="app hidden">
+    <div id="offline-banner" class="offline-banner hidden">
+      <span>⚡ Thiết bị đang ngoại tuyến (Offline) — Ứng dụng PWA đang chạy từ bộ nhớ đệm</span>
+    </div>
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <svg viewBox="0 0 64 64" width="32" height="32"><rect width="64" height="64" rx="14" fill="#2563eb"/><path d="M20 44 32 18l12 26h-7l-5-12-5 12z" fill="#fff"/></svg>
@@ -101,6 +112,7 @@
             <input type="search" id="global-search" placeholder="Tìm nhanh tài sản, mã, serial… (Ctrl+K)" autocomplete="off"/>
             <div class="search-results hidden" id="search-results"></div>
           </div>
+          <button class="btn primary btn-sm pwa-install-btn hidden" id="btn-pwa-install" title="Cài đặt AMS Pro vào máy tính hoặc màn hình chính điện thoại">📲 Cài App</button>
           <button class="icon-btn" id="btn-top-scan" title="Quét mã QR/mã vạch để mở hồ sơ tài sản" hidden>📷</button>
           <button class="icon-btn" id="btn-quick-add" title="Thêm nhanh">＋</button>
           <button class="icon-btn" id="btn-notifications" title="Thông báo">🔔<span class="badge-count hidden" id="notif-count">0</span></button>
@@ -133,6 +145,14 @@
         <span id="footer-left">AMS Pro © 2026 — Hệ thống Quản lý Tài sản Doanh nghiệp</span>
         <span id="footer-right"></span>
       </footer>
+
+      <nav class="mobile-bottom-nav only-mobile" id="mobile-bottom-nav">
+        <a href="#/dashboard" class="mb-item" data-key="dashboard"><span class="mb-icon">📊</span><span class="mb-label">Tổng quan</span></a>
+        <a href="#/assets" class="mb-item" data-key="assets"><span class="mb-icon">📦</span><span class="mb-label">Tài sản</span></a>
+        <a href="#/scan" class="mb-item mb-scan-btn" data-key="scan"><span class="mb-icon">📷</span><span class="mb-label">Quét QR</span></a>
+        <a href="#/stocktakes" class="mb-item" data-key="stocktakes"><span class="mb-icon">🧮</span><span class="mb-label">Kiểm kê</span></a>
+        <a href="#/signatures" class="mb-item" data-key="signatures"><span class="mb-icon">✍️</span><span class="mb-label">Ký số</span></a>
+      </nav>
     </div>
   </div>
 

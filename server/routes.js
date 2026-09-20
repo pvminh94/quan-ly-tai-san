@@ -21,6 +21,8 @@ const util = require('./lib/util');
 const http = require('./lib/http');
 const reports = require('./lib/report-engine');
 const docs = require('./lib/documents');
+const digisig = require('./lib/digisig');
+const qr = require('./lib/qr');
 
 const { ENTITIES, T, PERMISSION_MODULES, PERMISSION_ACTIONS } = schema;
 const { sendJSON, sendError, sendText, readBody, parseCookies, clientIp } = http;
@@ -1724,6 +1726,231 @@ function handleDocument(ctx) {
   res.end(html);
 }
 
+/* ============================ CHỮ KÝ SỐ CHỨNG TỪ ============================ */
+
+function handleSignDocument(ctx) {
+  const { res, body, user } = ctx;
+  if (!user) return fail(res, 401, 'Vui lòng đăng nhập để thực hiện ký số');
+  const { docType, docId, role, roleLabel, signerTitle, signerName, pin, handwrittenSvg, note } = body || {};
+  if (!docType || !docId) return fail(res, 400, 'Thiếu loại chứng từ hoặc mã chứng từ');
+
+  try {
+    const record = digisig.signDocument({
+      docType,
+      docId,
+      role,
+      roleLabel,
+      signerTitle,
+      signerName: signerName || user.fullName,
+      user,
+      handwrittenSvg,
+      note,
+      pin,
+    });
+    return ok(res, record, { message: 'Ký số chứng từ thành công' });
+  } catch (err) {
+    return fail(res, 400, err.message);
+  }
+}
+
+function handleGetDocSignatures(ctx) {
+  const { res, params } = ctx;
+  const { type, id } = params;
+  const list = digisig.getSignaturesForDoc(type, id);
+  ok(res, list);
+}
+
+function handleListSignatures(ctx) {
+  const { res, query } = ctx;
+  const docType = query.get('docType');
+  const status = query.get('status');
+  const q = (query.get('q') || '').trim().toLowerCase();
+
+  let rows = store.all('signatures').slice().reverse();
+  if (docType) rows = rows.filter((s) => s.docType === docType);
+  if (status) rows = rows.filter((s) => s.status === status);
+  if (q) {
+    rows = rows.filter((s) =>
+      (s.code && s.code.toLowerCase().includes(q)) ||
+      (s.docCode && s.docCode.toLowerCase().includes(q)) ||
+      (s.signerName && s.signerName.toLowerCase().includes(q)) ||
+      (s.signerTitle && s.signerTitle.toLowerCase().includes(q))
+    );
+  }
+  ok(res, rows);
+}
+
+function renderVerifyPage(res, verifResult, code) {
+  const v = verifResult || {};
+  const rec = v.record || {};
+  const cert = v.cert || digisig.getCertificateInfo();
+  const esc = util.escapeHtml;
+
+  const isValid = v.valid;
+  const isRevoked = v.isRevoked;
+  const isTampered = !v.contentIntact && v.found;
+
+  let statusClass = 'valid';
+  let statusText = 'CHỨNG TỪ HỢP LỆ';
+  let statusDesc = 'Chữ ký số hợp lệ và nội dung chứng từ toàn vẹn, không bị sửa đổi kể từ thời điểm ký.';
+
+  if (!v.found) {
+    statusClass = 'not-found';
+    statusText = 'KHÔNG TÌM THẤY CHỨNG TỪ';
+    statusDesc = 'Mã tra cứu không tồn tại trong hệ thống hoặc đã bị xoá.';
+  } else if (isRevoked) {
+    statusClass = 'revoked';
+    statusText = 'CHỮ KÝ ĐÃ BỊ THU HỒI';
+    statusDesc = v.message || 'Chữ ký số đã bị thu hồi bởi người quản trị.';
+  } else if (isTampered) {
+    statusClass = 'tampered';
+    statusText = 'CẢNH BÁO: CHỨNG TỪ ĐÃ BỊ SỬA ĐỔI';
+    statusDesc = 'Nội dung chứng từ hiện tại không khớp với mã băm SHA-256 lúc ký. Chứng từ đã bị chỉnh sửa trái phép!';
+  } else if (!v.cryptoValid) {
+    statusClass = 'tampered';
+    statusText = 'CHỮ KÝ MẬT MÃ KHÔNG HỢP LỆ';
+    statusDesc = 'Chữ ký RSA không khớp với chứng thư số của đơn vị.';
+  }
+
+  const dtStr = rec.signedAt ? new Date(rec.signedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : '—';
+
+  const html = `<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Xác thực Chữ ký số điện tử — ${esc(code || rec.code || 'AMS Pro')}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 24px 16px; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .box { max-width: 680px; width: 100%; background: #1e293b; border-radius: 16px; border: 1px solid #334155; box-shadow: 0 20px 40px rgba(0,0,0,0.5); overflow: hidden; }
+  .box-head { padding: 20px 24px; background: #0f172a; border-bottom: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo svg { width: 36px; height: 36px; border-radius: 8px; }
+  .logo-text b { display: block; font-size: 15px; color: #fff; letter-spacing: -.2px; }
+  .logo-text small { color: #94a3b8; font-size: 12px; }
+  .status-banner { padding: 24px; text-align: center; }
+  .status-banner.valid { background: linear-gradient(180deg, rgba(22,163,74,0.18) 0%, rgba(22,163,74,0.02) 100%); border-bottom: 1px solid rgba(22,163,74,0.3); }
+  .status-banner.revoked { background: linear-gradient(180deg, rgba(220,38,38,0.18) 0%, rgba(220,38,38,0.02) 100%); border-bottom: 1px solid rgba(220,38,38,0.3); }
+  .status-banner.tampered { background: linear-gradient(180deg, rgba(217,119,6,0.18) 0%, rgba(217,119,6,0.02) 100%); border-bottom: 1px solid rgba(217,119,6,0.3); }
+  .status-banner.not-found { background: #1e293b; border-bottom: 1px solid #334155; }
+  .icon-circle { width: 56px; height: 56px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 26px; margin-bottom: 12px; font-weight: bold; }
+  .valid .icon-circle { background: #16a34a; color: #fff; box-shadow: 0 0 24px rgba(22,163,74,0.5); }
+  .revoked .icon-circle { background: #dc2626; color: #fff; box-shadow: 0 0 24px rgba(220,38,38,0.5); }
+  .tampered .icon-circle { background: #d97706; color: #fff; box-shadow: 0 0 24px rgba(217,119,6,0.5); }
+  .not-found .icon-circle { background: #64748b; color: #fff; }
+  .status-title { font-size: 18px; font-weight: 700; margin: 0 0 6px; letter-spacing: .3px; }
+  .valid .status-title { color: #4ade80; }
+  .revoked .status-title { color: #f87171; }
+  .tampered .status-title { color: #fbbf24; }
+  .not-found .status-title { color: #94a3b8; }
+  .status-desc { font-size: 13.5px; color: #cbd5e1; max-width: 520px; margin: 0 auto; line-height: 1.45; }
+  .details { padding: 20px 24px; }
+  table.info-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.info-tbl th { text-align: left; padding: 10px 8px; color: #94a3b8; width: 34%; font-weight: 500; border-bottom: 1px solid #334155; }
+  table.info-tbl td { padding: 10px 8px; color: #f1f5f9; border-bottom: 1px solid #334155; word-break: break-all; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .badge.success { background: #16a34a; color: #fff; }
+  .badge.danger { background: #dc2626; color: #fff; }
+  .badge.warn { background: #d97706; color: #fff; }
+  .legal-note { padding: 14px 24px; background: #0f172a; border-top: 1px solid #334155; font-size: 11.5px; color: #94a3b8; line-height: 1.5; }
+  .actions { padding: 16px 24px; display: flex; gap: 10px; justify-content: flex-end; background: #1e293b; border-top: 1px solid #334155; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; border: 0; }
+  .btn.primary { background: #2563eb; color: #fff; }
+  .btn.ghost { background: #334155; color: #e2e8f0; }
+  .btn:hover { opacity: .9; }
+</style></head><body>
+<div class="box">
+  <div class="box-head">
+    <div class="logo">
+      <svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#2563eb"/><path d="M20 44 32 18l12 26h-7l-5-12-5 12z" fill="#fff"/></svg>
+      <div class="logo-text">
+        <b>AMS Pro — Xác thực Chứng từ Điện tử</b>
+        <small>Hệ thống Quản lý Tài sản Doanh nghiệp</small>
+      </div>
+    </div>
+    <span class="badge ${isValid ? 'success' : (isRevoked ? 'danger' : 'warn')}">${esc(statusText)}</span>
+  </div>
+
+  <div class="status-banner ${statusClass}">
+    <div class="icon-circle">${isValid ? '✓' : (isRevoked ? '✕' : (isTampered ? '⚠' : '?'))}</div>
+    <div class="status-title">${esc(statusText)}</div>
+    <div class="status-desc">${esc(statusDesc)}</div>
+  </div>
+
+  ${v.found ? `
+  <div class="details">
+    <table class="info-tbl">
+      <tbody>
+        <tr><th>Mã tra cứu xác thực</th><td><b class="mono" style="color:#60a5fa">${esc(rec.code)}</b></td></tr>
+        <tr><th>Chứng từ</th><td><b>${esc(rec.docTitle || '')}</b> (${esc(rec.docCode || '')})</td></tr>
+        <tr><th>Người ký</th><td><strong style="color:#fff">${esc(rec.signerName || '')}</strong> — ${esc(rec.signerTitle || 'Đại diện')}</td></tr>
+        <tr><th>Vai trò ký</th><td><span class="badge" style="background:#3b82f6;color:#fff">${esc(rec.roleLabel || rec.role || 'Người ký')}</span></td></tr>
+        <tr><th>Đơn vị / Cơ quan</th><td>${esc(rec.orgName || '')} ${rec.orgTaxCode ? `(MST: ${esc(rec.orgTaxCode)})` : ''}</td></tr>
+        <tr><th>Thời gian ký (Timestamp)</th><td>${esc(dtStr)}</td></tr>
+        <tr><th>Trạng thái chữ ký</th><td><span class="badge ${rec.status === 'valid' ? 'success' : 'danger'}">${rec.status === 'valid' ? '✓ Hợp lệ (Active)' : 'Đã thu hồi (Revoked)'}</span></td></tr>
+        <tr><th>Tính toàn vẹn dữ liệu</th><td>${v.contentIntact ? '<span style="color:#4ade80">✓ Nguyên vẹn (Khớp 100% mã băm SHA-256)</span>' : '<span style="color:#f87171">✕ Không khớp — Dữ liệu đã bị thay đổi</span>'}</td></tr>
+        <tr><th>Thuật toán mã hóa</th><td><span class="mono">${esc((rec.certificate && rec.certificate.algorithm) || 'RSA 2048-bit + SHA-256')}</span></td></tr>
+        <tr><th>Mã băm SHA-256</th><td><span class="mono" style="color:#94a3b8;font-size:11px">${esc(rec.contentHash || '')}</span></td></tr>
+        <tr><th>Chứng thư số (CA)</th><td>${esc((rec.certificate && rec.certificate.issuer) || cert.issuer)} • Serial: <span class="mono">${esc((rec.certificate && rec.certificate.serial) || cert.serial)}</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  ` : `
+  <div class="details" style="text-align:center;color:#94a3b8;padding:32px">
+    Không có thông tin chi tiết cho mã xác thực này. Vui lòng kiểm tra lại mã số trên con dấu hoặc quét lại mã QR.
+  </div>
+  `}
+
+  <div class="legal-note">
+    🛡️ <b>Cơ sở pháp lý:</b> Xác thực chữ ký số điện tử căn cứ theo Nghị định số 130/2018/NĐ-CP của Chính phủ quy định chi tiết thi hành Luật Giao dịch điện tử về chữ ký số và dịch vụ chứng thực chữ ký số; Nghị định 30/2020/NĐ-CP về công tác văn thư.
+  </div>
+
+  <div class="actions">
+    ${rec.docType && rec.docId ? `<a class="btn primary" href="/api/documents/${esc(rec.docType)}/${esc(rec.docId)}" target="_blank">🖨 Xem chứng từ gốc</a>` : ''}
+    <a class="btn ghost" href="/index.html#/signatures">Về ứng dụng AMS Pro</a>
+  </div>
+</div>
+</body></html>`;
+
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleVerifySignature(ctx) {
+  const { req, res, query, body } = ctx;
+  const code = (query && query.get('code')) || (body && (body.code || body.id));
+  if (!code) return fail(res, 400, 'Thiếu mã chữ ký số hoặc mã chứng từ tra cứu');
+
+  const result = digisig.verifySignature(code);
+
+  const wantsJson =
+    (req.headers.accept && req.headers.accept.includes('application/json')) ||
+    (query && query.get('format') === 'json') ||
+    req.method === 'POST';
+
+  if (wantsJson) {
+    return ok(res, result);
+  }
+
+  return renderVerifyPage(res, result, code);
+}
+
+function handleRevokeSignature(ctx) {
+  const { res, params, body, user } = ctx;
+  if (!user || (!user.isSuperAdmin && user.role !== 'admin' && user.role !== 'giam_doc')) {
+    return fail(res, 403, 'Chỉ Quản trị viên hoặc Giám đốc mới có quyền thu hồi chữ ký số');
+  }
+  try {
+    const updated = digisig.revokeSignature(params.id, user, body ? body.reason : '');
+    return ok(res, updated, { message: 'Đã thu hồi chữ ký số thành công' });
+  } catch (err) {
+    return fail(res, 400, err.message);
+  }
+}
+
+function handleGetCertificate(ctx) {
+  ok(ctx.res, digisig.getCertificateInfo());
+}
+
 /* ============================ THÔNG BÁO ============================ */
 
 function handleNotifications(ctx) {
@@ -1855,7 +2082,14 @@ function register(router) {
   router.post('/api/notifications/mark', handleMarkNotifications);
   router.post('/api/notifications/refresh-alerts', handleRefreshAlerts);
 
-  /* ---- Chứng từ in ---- */
+  /* ---- Chứng từ in & Chữ ký số ---- */
+  router.post('/api/documents/sign', handleSignDocument);
+  router.get('/api/documents/signatures', handleListSignatures);
+  router.get('/api/documents/certificate', handleGetCertificate);
+  router.get('/api/documents/verify', handleVerifySignature);
+  router.post('/api/documents/verify', handleVerifySignature);
+  router.post('/api/documents/signatures/:id/revoke', handleRevokeSignature);
+  router.get('/api/documents/:type/:id/signatures', handleGetDocSignatures);
   router.get('/api/documents/labels', handleLabelBatch);
   router.get('/api/documents/:type/:id', handleDocument);
 

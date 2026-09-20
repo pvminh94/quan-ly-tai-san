@@ -534,3 +534,126 @@ body.dark .dz-canvas-wrap { background: #070d1a; }
 @keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 .scan-banner.flash { animation: dupFlash 1.2s ease; }
 @keyframes dupFlash { 0% { box-shadow: 0 0 0 4px rgba(239,68,68,.4); } 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); } }
+
+/* ============================== PWA & CHỮ KÝ SỐ ============================== */
+
+/* Banner trạng thái Offline */
+.offline-banner {
+  background: #f59e0b;
+  color: #78350f;
+  padding: 8px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-bottom: 1px solid #d97706;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+/* Nút cài đặt ứng dụng PWA trên thanh tiêu đề */
+.pwa-install-btn {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  font-weight: 600;
+  border: 1px solid rgba(255,255,255,0.2);
+  box-shadow: 0 2px 6px rgba(37,99,235,0.3);
+  animation: pwaPulse 2.5s infinite;
+}
+@keyframes pwaPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+/* Thanh điều hướng dưới đáy ứng dụng di động (Mobile Bottom Nav) */
+.mobile-bottom-nav {
+  display: none;
+}
+@media (max-width: 980px) {
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    z-index: 80;
+    justify-content: space-around;
+    align-items: center;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
+  }
+  .mb-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 10.5px;
+    font-weight: 500;
+    padding: 6px 10px;
+    min-width: 54px;
+    transition: color .15s ease;
+  }
+  .mb-item:hover, .mb-item.active {
+    color: var(--c-primary);
+    text-decoration: none;
+  }
+  .mb-item .mb-icon {
+    font-size: 19px;
+    line-height: 1;
+    margin-bottom: 2px;
+  }
+  .mb-item.mb-scan-btn {
+    position: relative;
+    top: -10px;
+  }
+  .mb-item.mb-scan-btn .mb-icon {
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(37,99,235,0.4);
+    font-size: 20px;
+  }
+  .content {
+    padding-bottom: 78px;
+  }
+}
+
+/* Hộp vẽ chữ ký điện tử trên màn hình cảm ứng & chuột */
+.sig-canvas-wrap {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  padding: 8px;
+  text-align: center;
+}
+.sig-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 120px;
+  touch-action: none;
+  cursor: crosshair;
+  background: #fff;
+  border-radius: 6px;
+}
+.sig-canvas-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}

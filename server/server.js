@@ -35,7 +35,7 @@ if (store.isEmpty()) {
 const router = new httpLib.Router();
 routes.register(router);
 
-const PUBLIC_PATHS = ['/api/auth/login', '/api/health'];
+const PUBLIC_PATHS = ['/api/auth/login', '/api/health', '/api/documents/verify'];
 
 async function handleRequest(req, res) {
   const started = Date.now();

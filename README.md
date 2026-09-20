@@ -197,6 +197,39 @@ Công cụ này cần cài thêm thư viện kiểm thử (`@zxing/library`, tu�
 | Sao lưu & phục hồi | Tạo/tải lên/tải xuống/phục hồi bản sao lưu, tự sao lưu trước thao tác nguy hiểm |
 | Công cụ dữ liệu | Kết xuất CSDL JSON, kết xuất script SQL (MySQL/PostgreSQL), nhập CSDL, thùng rác & khôi phục, khởi tạo lại dữ liệu mẫu |
 
+### 5.8 Ứng dụng di động PWA (Progressive Web App)
+- **Tương thích mọi thiết bị di động**: hỗ trợ cài đặt trực tiếp lên màn hình chính (iOS Safari, Android Chrome, Edge) mà không cần qua App Store/Google Play.
+- **Tệp Web App Manifest (`/manifest.webmanifest`)**: cấu hình `display: standalone`, `theme_color: #2563eb`, `background_color: #f8fafc`, bộ biểu tượng PNG 192×192, 512×512 và maskable icons tối ưu tỷ lệ hiển thị trên di động.
+- **Service Worker (`/sw.js`)**:
+  - Tự động lưu bộ nhớ đệm Offline Shell (App Shell Cache) cho toàn bộ trang tĩnh, CSS, font chữ và các thư viện JavaScript SPA.
+  - Chiến lược bộ nhớ đệm: **Cache-First / Stale-While-Revalidate** cho tài nguyên giao diện, **Network-First** cho các lệnh gọi API với cơ chế phản hồi lỗi thân thiện khi ngoại tuyến.
+- **Thanh điều hướng dưới đáy (Mobile Bottom Navigation Bar)**:
+  - Tối ưu thao tác một tay trên điện thoại di động với 5 mục truy cập nhanh: **Tổng quan** (`#/dashboard`), **Tài sản** (`#/assets`), **Quét QR** (`#/scan`), **Kiểm kê** (`#/stocktakes`), **Ký số** (`#/signatures`).
+  - Tự động kích hoạt trạng thái `active` theo URL hash hiện tại.
+- **Thông báo & chuyển đổi trạng thái mạng**:
+  - Banner cảnh báo Offline/Online tự động hiển thị khi mất kết nối mạng.
+  - Hộp thoại cài đặt nhanh PWA (`beforeinstallprompt`) hỗ trợ người dùng đưa ứng dụng ra màn hình chính với 1 chạm.
+
+### 5.9 Chữ ký số trên chứng từ & Chứng thư số Doanh nghiệp (`#/signatures`)
+- **Tiêu chuẩn mật mã học**:
+  - Ký số bằng thuật toán mã hóa khóa công khai **RSA 2048-bit + SHA-256** (RFC 3447 / PKCS#1 v1.5, RFC 5280) thuần Node.js `crypto` — tuân thủ pháp lý theo **Nghị định 130/2018/NĐ-CP** và **Luật Giao dịch điện tử số 20/2023/QH15**.
+  - Đảm bảo đầy đủ 3 thuộc tính pháp lý: **Tính toàn vẹn (Integrity)**, **Tính xác thực (Authenticity)**, và **Tính chống chối bỏ (Non-Repudiation)**.
+- **Ký số toàn bộ 8 loại chứng từ tài sản**:
+  - Phiếu Bàn giao tài sản (`assignment`), Phiếu Điều chuyển (`transfer`), Phiếu Bảo trì - sửa chữa (`maintenance`), Biên bản Thanh lý (`disposal`), Biên bản Kiểm kê (`stocktake`), Hồ sơ Bảo hành (`warranty`), Bảng tính Khấu hao (`depreciation`), Hợp đồng mua sắm (`contract`).
+- **Hình thức ký số linh hoạt**:
+  - **Con dấu số điện tử PKI (RSA-2048)**: tạo con dấu số pháp nhân / cá nhân có khóa mã hóa và mã PIN bảo mật.
+  - **Ký tay cảm ứng (Canvas Pad)**: hỗ trợ vẽ chữ ký trực tiếp bằng chuột hoặc ngón tay trên màn hình điện thoại cảm ứng, tích hợp ảnh chữ ký vector vào chứng từ.
+  - **Đa vai trò ký trên cùng chứng từ**: hỗ trợ nhiều bên ký (Người giao, Người nhận, Kế toán trưởng, Thủ trưởng đơn vị, Kỹ thuật viên...).
+- **Con dấu điện tử trực quan trên bản in & PDF**:
+  - Dấu điện tử tròn/chữ nhật màu đỏ chuẩn doanh nghiệp hiển thị trực tiếp trên chứng từ in: Tên công ty, Mã chứng thư, Ngày giờ ký chuẩn ISO, Mã tra cứu `SIG-2026-XXXXX`.
+  - Khung pháp lý điện tử chân chứng từ kèm **Mã QR tra cứu xác thực trực tuyến**.
+- **Tra cứu & Kiểm tra tính toàn vẹn (Tamper-Evident)**:
+  - Cổng tra cứu xác thực công khai `/api/documents/verify?code=...` hoặc qua hộp thoại trực tiếp trên giao diện: quét mã QR hoặc nhập mã tra cứu để xem hồ sơ chữ ký, chứng nhận số, và tính toàn vẹn của nội dung văn bản.
+  - Khi chứng từ bị chỉnh sửa dù chỉ 1 ký tự, hệ thống phát hiện ngay lập tức mã băm SHA-256 sai lệch và báo cảnh báo vi phạm tính toàn vẹn.
+- **Quản lý chứng thư số & Thu hồi**:
+  - Xem chi tiết chứng thư CA doanh nghiệp (Serial, Đơn vị cấp, Thuật toán, Khóa công khai PEM, Hạn hiệu lực).
+  - Thu hồi chữ ký số khi có yêu cầu hủy chứng từ với lý do cụ thể và ghi nhận nhật ký hệ thống.
+
 ---
 
 ## 6. Trình thiết kế báo cáo
@@ -257,6 +290,7 @@ Xác thực bằng cookie `ams_token` (HttpOnly) hoặc header `Authorization: B
 | Nghiệp vụ | `POST /api/depreciations/run`, `GET /api/depreciations/preview`, `POST /api/stocktakes/:id/generate-items`, `POST /api/stocktakes/:id/items/:itemId`, `POST /api/stocktakes/:id/close`, `POST /api/{transfers|disposals|maintenances|assignments}/:id/:action`, `GET /api/assets/:id/history` |
 | Báo cáo | `GET /api/reports/datasets`, `GET /api/reports/datasets/:key/data`, `POST /api/reports/preview`, `POST /api/reports/render`, `POST /api/reports/templates/clone`, `GET /api/reports/blank-design` |
 | Chứng từ | `GET /api/documents/:type/:id` (tem 1 tài sản: `GET /api/documents/label/:assetId?copies=8` • **in tem hàng loạt**: `GET /api/documents/labels?assetIds=1,2,3` hoặc `?stocktakeId=` / `?departmentId=` / `?locationId=` / `?categoryId=` + `&copies=1..4`) |
+| Chữ ký số | `POST /api/documents/sign`, `POST /api/documents/verify`, `GET /api/documents/signatures`, `GET /api/documents/certificate`, `POST /api/documents/revoke-signature` |
 | Quét mã | `GET /api/scan/lookup?code=&stocktakeId=`, `POST /api/scan/count` (`{stocktakeId, code, result, countedQty, note}`), `GET /api/scan/history?stocktakeId=&limit=`, `GET /api/scan/export?stocktakeId=&format=xlsx|csv` |
 | Quản trị | `GET /api/admin/system`, `/permission-matrix`, `/backups`, `POST /api/admin/backup`, `/restore-backup`, `/upload-backup`, `GET /api/admin/db/export`, `POST /api/admin/db/import`, `GET /api/admin/db/export-sql?dialect=mysql|postgres`, `POST /api/admin/reset-demo`, `DELETE /api/admin/audit-logs`, `DELETE /api/admin/sessions/:id`, `POST /api/admin/users/:id/reset-password`, `POST /api/admin/users/:id/toggle-status` |
 | Thông báo | `GET /api/notifications`, `POST /api/notifications/mark`, `POST /api/notifications/refresh-alerts` |
@@ -311,12 +345,13 @@ server {
 
 ---
 
-## 10. Lộ trình mở rộng gợi ý
+## 10. Lộ trình phát triển & Tính năng đã hoàn thành
 
-- Gửi email/SMS thật cho cảnh báo bảo trì & bàn giao (mẫu email đã có sẵn trong cấu hình).
-- Quét mã vạch/QR bằng điện thoại để kiểm kê nhanh, in tem hàng loạt, quét ngay trong màn hình kiểm kê (đã có).
-- Đồng bộ với phần mềm kế toán qua tệp kết xuất hoặc API trung gian.
-- Ứng dụng di động PWA và chữ ký số trên chứng từ.
+- [x] Quét mã vạch/QR bằng điện thoại để kiểm kê nhanh, in tem hàng loạt, quét ngay trong màn hình kiểm kê.
+- [x] Ứng dụng di động PWA (Progressive Web App) với Service Worker ngoại tuyến và thanh điều hướng cảm ứng.
+- [x] Chữ ký số mật mã học RSA-2048 + SHA-256 trên toàn bộ chứng từ tài sản điện tử, kèm con dấu số và mã QR xác thực.
+- [ ] Gửi email/SMS thật cho cảnh báo bảo trì & bàn giao (mẫu email đã có sẵn trong cấu hình).
+- [ ] Đồng bộ dữ liệu với phần mềm kế toán ERP qua tệp kết xuất hoặc API trung gian.
 
 ---
 

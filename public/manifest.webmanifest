@@ -1,0 +1,69 @@
+{
+  "name": "AMS Pro - Quản lý tài sản & Kiểm kê doanh nghiệp",
+  "short_name": "AMS Pro",
+  "description": "Hệ thống Quản lý tài sản doanh nghiệp, kiểm kê mã vạch/QR di động và chữ ký số chứng từ",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "lang": "vi",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "64x64",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Quét mã kiểm kê",
+      "short_name": "Quét QR",
+      "description": "Quét mã QR/mã vạch tài sản bằng camera",
+      "url": "/index.html#/scan",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Danh mục tài sản",
+      "short_name": "Tài sản",
+      "description": "Tra cứu và quản lý danh mục tài sản",
+      "url": "/index.html#/assets",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Chữ ký số chứng từ",
+      "short_name": "Ký số",
+      "description": "Ký số và xác thực chứng từ điện tử",
+      "url": "/index.html#/signatures",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Kiểm kê tài sản",
+      "short_name": "Kiểm kê",
+      "description": "Xem các đợt kiểm kê tài sản",
+      "url": "/index.html#/stocktakes",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

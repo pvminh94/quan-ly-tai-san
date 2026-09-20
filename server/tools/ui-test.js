@@ -587,6 +587,56 @@ async function waitFor(fn, timeout, step) {
     }
   } catch (e) { bad('Luồng in tem hàng loạt / quét mới lỗi', e.message); }
 
+  // ---- PWA Di động & Chữ ký số trên chứng từ ----
+  try {
+    // 1. Kiểm tra phần tử PWA trong DOM
+    const manifestLink = doc.querySelector('link[rel="manifest"]');
+    if (manifestLink && manifestLink.getAttribute('href') === '/manifest.webmanifest') ok('PWA: Thẻ link manifest khai báo đúng /manifest.webmanifest');
+    else bad('PWA: Thiếu thẻ link manifest hoặc sai href');
+
+    const themeMeta = doc.querySelector('meta[name="theme-color"]');
+    if (themeMeta && themeMeta.getAttribute('content') === '#2563eb') ok('PWA: Khai báo theme-color #2563eb chuẩn');
+    else bad('PWA: Thiếu meta theme-color');
+
+    const bottomNav = doc.getElementById('mobile-bottom-nav');
+    if (bottomNav && bottomNav.querySelectorAll('.mb-item').length >= 5) ok('PWA: Thanh điều hướng dưới đáy (mobile bottom nav) có đủ 5 mục (Tổng quan, Tài sản, Quét QR, Kiểm kê, Ký số)');
+    else bad('PWA: Thiếu thanh điều hướng mobile-bottom-nav');
+
+    // 2. Kiểm tra trang Chữ ký số (#/signatures)
+    window.location.hash = '#/signatures';
+    const sigHead = await waitFor(() => /Chữ ký số & Chứng từ điện tử/.test((doc.querySelector('.page-head') || {}).textContent || ''), 10000);
+    if (sigHead) ok('Trang Chữ ký số (#/signatures) render đúng tiêu đề và thống kê');
+    else bad('Trang Chữ ký số không render');
+
+    await waitFor(() => doc.getElementById('sig-search'), 8000);
+    const btnCert = doc.getElementById('sig-btn-cert');
+    if (btnCert) {
+      btnCert.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      const certModal = await waitFor(() => {
+        const m = doc.querySelectorAll('.modal');
+        return Array.from(m).find((x) => /Chứng thư số Doanh nghiệp/.test(x.textContent));
+      }, 8000);
+      if (certModal && /564E53-2026-CA01-8F9A/.test(certModal.textContent)) ok('Hộp thoại thông tin Chứng thư số CA hiển thị đúng số serial & thuật toán RSA-2048');
+      else bad('Hộp thoại chứng thư số không hiển thị đúng');
+      if (certModal) {
+        const closeBtn = certModal.querySelector('.btn.primary') || certModal.querySelector('.modal-foot .btn');
+        if (closeBtn) closeBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      }
+    } else bad('Thiếu nút xem chứng thư số');
+
+    // 3. Kiểm tra hộp thoại ký số điện tử
+    const btnSign = doc.getElementById('sig-btn-sign');
+    if (btnSign) {
+      btnSign.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      const signModal = await waitFor(() => doc.getElementById('sd-form'), 8000);
+      if (signModal && doc.getElementById('sd-role') && doc.getElementById('sd-pin')) ok('Hộp thoại ký số chứng từ mở thành công (chọn vai trò, tên, PIN)');
+      else bad('Hộp thoại ký số không mở');
+      const cancelBtn = doc.getElementById('sd-cancel');
+      if (cancelBtn) cancelBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    } else bad('Thiếu nút ký chứng từ mới');
+
+  } catch (e) { bad('Luồng kiểm thử PWA / Chữ ký số lỗi', e.message); }
+
   // ---- đăng xuất (chạy cuối vì sẽ kết thúc phiên) ----
   try {
     doc.getElementById('user-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

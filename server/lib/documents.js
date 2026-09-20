@@ -9,6 +9,8 @@ const store = require('./store');
 const service = require('./service');
 const util = require('./util');
 const reportEngine = require('./report-engine');
+const digisig = require('./digisig');
+const qr = require('./qr');
 const formatValue = reportEngine.formatValue;
 
 const esc = util.escapeHtml;
@@ -19,6 +21,22 @@ function money(v) {
 
 function date(v) {
   return formatValue(v, 'date');
+}
+
+function formatDateTime(v) {
+  if (!v) return '';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  return d.toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 function header(cfg, title, code, dateStr) {
@@ -39,8 +57,54 @@ function header(cfg, title, code, dateStr) {
   ${dateStr ? `<div class="doc-sub">Ngày ${date(dateStr)}</div>` : ''}`;
 }
 
-function signatures(cfg, labels, people) {
-  const items = labels.map((l, i) => `<div class="sig"><div class="sig-title">${esc(l)}</div><div class="sig-hint">(Ký, họ tên)</div><div class="sig-name">${esc((people && people[i]) || '')}</div></div>`);
+function signatures(cfg, labels, people, meta) {
+  let docSignatures = [];
+  if (meta && meta.docType && meta.docId) {
+    try {
+      docSignatures = store.filter(
+        'signatures',
+        (s) => s.docType === meta.docType && String(s.docId) === String(meta.docId) && s.status === 'valid'
+      );
+    } catch (e) {
+      docSignatures = [];
+    }
+  }
+
+  const items = labels.map((l, i) => {
+    const roleKey = (meta && meta.roles && meta.roles[i]) || '';
+    const sig = docSignatures.find(
+      (s) =>
+        (roleKey && s.role === roleKey) ||
+        (s.roleLabel && s.roleLabel === l) ||
+        (s.signerTitle && s.signerTitle.toLowerCase().includes(l.toLowerCase()))
+    );
+
+    if (sig) {
+      const dt = formatDateTime(sig.signedAt);
+      return `<div class="sig sig-signed">
+        <div class="sig-title">${esc(l)}</div>
+        <div class="digital-stamp">
+          ${sig.handwrittenSvg ? `<div class="stamp-handwritten">${sig.handwrittenSvg}</div>` : ''}
+          <div class="stamp-box">
+            <div class="stamp-head">
+              <span class="stamp-ok">✓</span>
+              <span class="stamp-badge">KÝ SỐ ĐIỆN TỬ</span>
+            </div>
+            <div class="stamp-body">
+              <div><b>Ký bởi:</b> ${esc(sig.signerName)}</div>
+              <div><b>Chức vụ:</b> ${esc(sig.signerTitle || 'Người ký')}</div>
+              <div><b>Đơn vị:</b> ${esc(sig.orgName || (cfg && cfg.company && cfg.company.name) || '')}</div>
+              <div><b>Ngày ký:</b> ${esc(dt)}</div>
+              <div class="stamp-code"><b>Mã tra cứu:</b> <span class="mono">${esc(sig.code)}</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="sig-name">${esc(sig.signerName)}</div>
+      </div>`;
+    }
+
+    return `<div class="sig"><div class="sig-title">${esc(l)}</div><div class="sig-hint">(Ký, họ tên)</div><div class="sig-name">${esc((people && people[i]) || '')}</div></div>`;
+  });
   return `<div class="signatures">${items.join('')}</div>`;
 }
 
@@ -53,10 +117,42 @@ function infoTable(rows) {
 
 function wrap(cfg, title, body, opts) {
   const o = opts || {};
+  let docSignatures = [];
+  if (o.docType && o.docId) {
+    try {
+      docSignatures = store.filter(
+        'signatures',
+        (s) => s.docType === o.docType && String(s.docId) === String(o.docId) && s.status === 'valid'
+      );
+    } catch (e) {
+      docSignatures = [];
+    }
+  }
+
+  // Khung xác thực điện tử ở chân chứng từ nếu đã có chữ ký số
+  let verifBlock = '';
+  if (docSignatures.length > 0) {
+    const primary = docSignatures[0];
+    const verifUrl = '/api/documents/verify?code=' + encodeURIComponent(primary.code);
+    const qrSvg = qr.svg(verifUrl, { module: 2, quiet: 1 });
+    verifBlock = `
+    <div class="doc-verif-card">
+      <div class="doc-verif-qr">${qrSvg}</div>
+      <div class="doc-verif-info">
+        <div class="doc-verif-title">🛡️ CHỨNG TỪ ĐIỆN TỬ ĐÃ KÝ SỐ — NGHỊ ĐỊNH 130/2018/NĐ-CP &amp; LUẬT GIAO DỊCH ĐIỆN TỬ</div>
+        <div class="doc-verif-text">Văn bản này đã được ký số an toàn bằng thuật toán mã hóa <b>RSA 2048-bit + SHA-256</b>. Quét mã QR hoặc truy cập hệ thống để tra cứu xác thực với mã số: <strong class="mono" style="color:#1e3a8a">${esc(docSignatures.map((s) => s.code).join(', '))}</strong></div>
+        <div class="doc-verif-meta">Mã băm SHA-256: <span class="mono">${esc(primary.contentHash.substring(0, 32))}…</span> • Ngày ký: ${formatDateTime(primary.signedAt)} • Đơn vị CA: ${esc(primary.certificate.issuer || 'AMS Enterprise CA')}</div>
+      </div>
+    </div>`;
+  }
+
   // multiSheet: body tự chứa các div .sheet (cho trang tem nhiều trang)
-  const sheets = o.multiSheet ? body : '<div class="sheet">' + body + '</div>';
+  const sheets = o.multiSheet ? body : '<div class="sheet">' + body + verifBlock + '</div>';
+
+  const rolesJson = JSON.stringify(o.roles || (o.docType ? digisig.getRolesForDoc(o.docType) : []));
+
   return `<!DOCTYPE html>
-<html lang="vi"><head><meta charset="utf-8"/>
+<html lang="vi"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>${esc(title)}</title>
 <style>
   * { box-sizing: border-box; }
@@ -64,7 +160,7 @@ function wrap(cfg, title, body, opts) {
   .toolbar { position:fixed; inset:0 0 auto 0; height:46px; background:#0f172a; color:#fff; display:flex; align-items:center; gap:10px; padding:0 16px; font-family:"Inter",Arial,sans-serif; font-size:13px; z-index:9; }
   .toolbar button, .toolbar a { background:#2563eb; color:#fff; border:0; padding:7px 14px; border-radius:6px; cursor:pointer; text-decoration:none; font-size:13px; }
   .toolbar a.secondary { background:#334155; }
-  .sheet { width:210mm; min-height:297mm; padding:18mm 16mm; background:#fff; margin:16px auto; box-shadow:0 2px 12px rgba(15,23,42,.2); }
+  .sheet { width:210mm; min-height:297mm; padding:18mm 16mm; background:#fff; margin:16px auto; box-shadow:0 2px 12px rgba(15,23,42,.2); position:relative; }
   .doc-head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #1e3a8a; padding-bottom:8px; }
   .company { font-weight:700; font-size:13pt; color:#1e3a8a; text-transform:uppercase; }
   .muted { color:#475569; font-size:10pt; font-family:"Inter",Arial,sans-serif; }
@@ -82,17 +178,55 @@ function wrap(cfg, title, body, opts) {
   table.data tfoot td { font-weight:700; background:#f8fafc; }
   .section { margin:18px 0 8px; font-weight:700; font-size:11pt; font-family:"Inter",Arial,sans-serif; text-transform:uppercase; color:#1e293b; border-left:4px solid #2563eb; padding-left:8px; }
   .signatures { display:flex; gap:12px; margin-top:36px; text-align:center; font-family:"Inter",Arial,sans-serif; }
-  .sig { flex:1; }
+  .sig { flex:1; min-width:0; }
   .sig-title { font-weight:700; font-size:10.5pt; }
   .sig-hint { font-style:italic; font-size:9pt; color:#64748b; margin-bottom:64px; }
   .sig-name { font-size:10.5pt; border-top:1px dashed #94a3b8; padding-top:4px; }
   .note { font-family:"Inter",Arial,sans-serif; font-size:10pt; color:#334155; }
   .label-sheet { padding:10mm 12mm; page-break-after:always; }
   .label-sheet:last-of-type { page-break-after:auto; }
+
+  /* Dấu chữ ký số điện tử chuẩn */
+  .sig-signed { display: flex; flex-direction: column; align-items: center; }
+  .digital-stamp { margin: 6px auto; max-width: 220px; width: 100%; }
+  .stamp-box { border: 1.5px solid #16a34a; border-radius: 6px; padding: 5px 8px; background: #f0fdf4; color: #166534; font-size: 8.5pt; text-align: left; }
+  .stamp-head { display: flex; align-items: center; gap: 4px; font-weight: 700; color: #15803d; font-size: 8.5pt; border-bottom: 1px dashed #86efac; padding-bottom: 3px; margin-bottom: 3px; }
+  .stamp-ok { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; background: #16a34a; color: #fff; border-radius: 50%; font-size: 10px; font-weight: bold; }
+  .stamp-body div { margin-top: 2px; line-height: 1.25; }
+  .stamp-code { font-size: 8pt; color: #14532d; }
+  .stamp-handwritten { max-height: 48px; margin-bottom: -2px; display: flex; justify-content: center; }
+  .stamp-handwritten svg { max-height: 48px; width: auto; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9pt; }
+
+  /* Khung xác thực chân chứng từ */
+  .doc-verif-card { margin-top: 28px; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; display: flex; align-items: center; gap: 14px; font-family: "Inter", Arial, sans-serif; }
+  .doc-verif-qr { width: 56px; height: 56px; flex-shrink: 0; }
+  .doc-verif-qr svg { width: 100%; height: 100%; display: block; }
+  .doc-verif-info { flex: 1; min-width: 0; }
+  .doc-verif-title { font-size: 8.5pt; font-weight: 700; color: #1e3a8a; margin-bottom: 2px; }
+  .doc-verif-text { font-size: 8pt; color: #475569; line-height: 1.35; }
+  .doc-verif-meta { font-size: 7.5pt; color: #64748b; margin-top: 3px; }
+
+  /* Hộp thoại ký số trên trang */
+  .sig-modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.6); z-index: 99; align-items: center; justify-content: center; font-family: "Inter", Arial, sans-serif; }
+  .sig-modal { background: #fff; width: 440px; max-width: 95vw; border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,.3); overflow: hidden; }
+  .sig-modal-head { padding: 14px 18px; background: #1e3a8a; color: #fff; display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 14px; }
+  .sig-modal-body { padding: 16px 18px; font-size: 13px; color: #1e293b; max-height: 80vh; overflow-y: auto; }
+  .sig-modal-foot { padding: 12px 18px; background: #f1f5f9; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid #e2e8f0; }
+  .sig-form-row { margin-bottom: 12px; }
+  .sig-form-row label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 12px; color: #475569; }
+  .sig-form-row input, .sig-form-row select { width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; font-family: inherit; }
+  .sig-pad-box { border: 1px dashed #94a3b8; border-radius: 6px; background: #f8fafc; text-align: center; position: relative; }
+  .sig-pad-box canvas { display: block; width: 100%; height: 110px; touch-action: none; cursor: crosshair; }
+  .sig-pad-bar { padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b; }
+  .sig-pad-clear { background: none; border: 0; color: #dc2626; cursor: pointer; font-size: 11px; padding: 2px 6px; }
+
   @media print {
     body { background:#fff; }
-    .toolbar { display:none; }
+    .toolbar, .sig-modal-backdrop { display:none !important; }
     .sheet { margin:0; box-shadow:none; width:auto; min-height:auto; padding:0; }
+    .doc-verif-card { border:1px solid #94a3b8; background:#fff; }
+    .stamp-box { background:#fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     @page { size:A4 portrait; margin:14mm 14mm; }
   }
 </style></head>
@@ -100,10 +234,221 @@ function wrap(cfg, title, body, opts) {
 <div class="toolbar">
   <strong>${esc(title)}</strong>
   <div style="flex:1"></div>
+  ${o.docType && o.docId ? `<button type="button" onclick="openSignModal()" style="background:#16a34a;font-weight:600">✍️ Ký số chứng từ</button>` : ''}
+  ${o.docType && o.docId ? `<button type="button" onclick="openVerifyModal()" style="background:#0891b2">🔍 Xác thực chữ ký</button>` : ''}
   <button onclick="window.print()">🖨 In / Lưu PDF</button>
   <a class="secondary" href="javascript:window.close()">Đóng</a>
 </div>
 ${sheets}
+
+${o.docType && o.docId ? `
+<!-- Modal Ký số trực tiếp trên chứng từ -->
+<div class="sig-modal-backdrop" id="sig-modal-wrap">
+  <div class="sig-modal">
+    <div class="sig-modal-head">
+      <span>✍️ Ký số chứng từ điện tử</span>
+      <button type="button" onclick="closeSignModal()" style="background:none;border:0;color:#fff;font-size:18px;cursor:pointer">✕</button>
+    </div>
+    <form id="sig-form" onsubmit="submitSignature(event)">
+      <div class="sig-modal-body">
+        <div class="sig-form-row">
+          <label>Vai trò người ký</label>
+          <select id="sig-role" required></select>
+        </div>
+        <div class="sig-form-row">
+          <label>Họ và tên người ký</label>
+          <input type="text" id="sig-name" placeholder="Nguyễn Văn Minh" required/>
+        </div>
+        <div class="sig-form-row">
+          <label>Chức vụ / Chức danh</label>
+          <input type="text" id="sig-title" placeholder="Kế toán trưởng / Đại diện bên giao" required/>
+        </div>
+        <div class="sig-form-row">
+          <label>Phương thức ký</label>
+          <div style="display:flex;gap:12px;margin:6px 0">
+            <label style="font-weight:normal;display:inline-flex;align-items:center;gap:4px">
+              <input type="radio" name="sig-type" value="cert" checked onchange="toggleSigCanvas(false)"/> Con dấu số điện tử (CA)
+            </label>
+            <label style="font-weight:normal;display:inline-flex;align-items:center;gap:4px">
+              <input type="radio" name="sig-type" value="hand" onchange="toggleSigCanvas(true)"/> Chữ ký tay cảm ứng
+            </label>
+          </div>
+        </div>
+        <div class="sig-form-row" id="canvas-row" style="display:none">
+          <label>Vẽ chữ ký (chuột hoặc ngón tay trên điện thoại)</label>
+          <div class="sig-pad-box">
+            <canvas id="sig-canvas" width="400" height="110"></canvas>
+            <div class="sig-pad-bar">
+              <span>Chạm / kéo để vẽ chữ ký</span>
+              <button type="button" class="sig-pad-clear" onclick="clearCanvas()">Xóa vẽ lại</button>
+            </div>
+          </div>
+        </div>
+        <div class="sig-form-row">
+          <label>Mã PIN ký số bảo mật</label>
+          <input type="password" id="sig-pin" placeholder="Mã PIN (mặc định: 123456)"/>
+          <small style="color:#64748b;font-size:11px">Dùng PIN để xác nhận thẩm quyền ký số theo tiêu chuẩn PKI.</small>
+        </div>
+      </div>
+      <div class="sig-modal-foot">
+        <button type="button" class="secondary" onclick="closeSignModal()">Hủy</button>
+        <button type="submit" style="background:#16a34a;font-weight:600">✍️ Ký &amp; Đóng dấu điện tử</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  const DOC_TYPE = ${JSON.stringify(o.docType)};
+  const DOC_ID = ${JSON.stringify(String(o.docId))};
+  const ROLES = ${rolesJson};
+
+  const modal = document.getElementById('sig-modal-wrap');
+  const roleSelect = document.getElementById('sig-role');
+  const canvas = document.getElementById('sig-canvas');
+  let ctx2d = null;
+  let drawing = false;
+  let hasStrokes = false;
+
+  ROLES.forEach(function(r) {
+    const opt = document.createElement('option');
+    opt.value = r.key;
+    opt.textContent = r.label;
+    opt.dataset.defaultTitle = r.defaultTitle || '';
+    roleSelect.appendChild(opt);
+  });
+
+  roleSelect.onchange = function() {
+    const opt = roleSelect.options[roleSelect.selectedIndex];
+    if (opt && opt.dataset.defaultTitle && !document.getElementById('sig-title').value) {
+      document.getElementById('sig-title').value = opt.dataset.defaultTitle;
+    }
+  };
+  if (roleSelect.options.length) roleSelect.onchange();
+
+  window.openSignModal = function() {
+    modal.style.display = 'flex';
+    initCanvas();
+  };
+
+  window.closeSignModal = function() {
+    modal.style.display = 'none';
+  };
+
+  window.toggleSigCanvas = function(show) {
+    document.getElementById('canvas-row').style.display = show ? 'block' : 'none';
+    if (show) initCanvas();
+  };
+
+  function initCanvas() {
+    if (!canvas || ctx2d) return;
+    ctx2d = canvas.getContext('2d');
+    ctx2d.lineWidth = 2.5;
+    ctx2d.lineCap = 'round';
+    ctx2d.lineJoin = 'round';
+    ctx2d.strokeStyle = '#1e3a8a';
+
+    function getPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return {
+        x: (clientX - rect.left) * (canvas.width / rect.width),
+        y: (clientY - rect.top) * (canvas.height / rect.height)
+      };
+    }
+
+    function start(e) {
+      drawing = true;
+      hasStrokes = true;
+      const p = getPos(e);
+      ctx2d.beginPath();
+      ctx2d.moveTo(p.x, p.y);
+      if (e.cancelable) e.preventDefault();
+    }
+    function move(e) {
+      if (!drawing) return;
+      const p = getPos(e);
+      ctx2d.lineTo(p.x, p.y);
+      ctx2d.stroke();
+      if (e.cancelable) e.preventDefault();
+    }
+    function stop() { drawing = false; }
+
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+    canvas.addEventListener('touchstart', start, { passive: false });
+    canvas.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', stop);
+  }
+
+  window.clearCanvas = function() {
+    if (!ctx2d || !canvas) return;
+    ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+    hasStrokes = false;
+  };
+
+  function canvasToSvg() {
+    if (!hasStrokes || !canvas) return null;
+    const dataUrl = canvas.toDataURL('image/png');
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 110" width="160" height="44"><image href="' + dataUrl + '" width="400" height="110"/></svg>';
+  }
+
+  window.submitSignature = async function(e) {
+    e.preventDefault();
+    const roleOpt = roleSelect.options[roleSelect.selectedIndex];
+    const roleKey = roleSelect.value;
+    const roleLabel = roleOpt ? roleOpt.textContent : '';
+    const signerName = document.getElementById('sig-name').value.trim();
+    const signerTitle = document.getElementById('sig-title').value.trim();
+    const pin = document.getElementById('sig-pin').value.trim();
+    const handwrittenSvg = canvasToSvg();
+
+    try {
+      const res = await fetch('/api/documents/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          docType: DOC_TYPE,
+          docId: DOC_ID,
+          role: roleKey,
+          roleLabel: roleLabel,
+          signerName: signerName,
+          signerTitle: signerTitle,
+          pin: pin,
+          handwrittenSvg: handwrittenSvg
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Lỗi khi ký số');
+      alert('✓ Ký số chứng từ thành công! Mã xác thực: ' + data.data.code);
+      window.location.reload();
+    } catch (err) {
+      alert('Không thể ký số: ' + err.message);
+    }
+  };
+
+  window.openVerifyModal = async function() {
+    try {
+      const res = await fetch('/api/documents/' + DOC_TYPE + '/' + DOC_ID + '/signatures');
+      const data = await res.json();
+      const list = (data && data.data) || [];
+      if (!list.length) {
+        alert('Chứng từ này hiện chưa có chữ ký số nào được ghi nhận.');
+        return;
+      }
+      const primary = list[0];
+      window.open('/api/documents/verify?code=' + encodeURIComponent(primary.code), '_blank');
+    } catch (err) {
+      alert('Lỗi tra cứu: ' + err.message);
+    }
+  };
+})();
+</script>
+` : ''}
+
 ${o.autoPrint ? '<script>window.onload=function(){setTimeout(function(){window.print()},300)}</script>' : ''}
 </body></html>`;
 }
@@ -149,9 +494,9 @@ function assignmentDoc(id, ctx) {
     ['Ghi chú', esc(rec.note || '')],
   ])}
   <p class="note">Hai bên đã kiểm tra, xác nhận tình trạng tài sản như trên. Biên bản được lập thành 02 (hai) bản, mỗi bên giữ 01 bản có giá trị pháp lý như nhau.</p>
-  ${signatures(ctx.settings, ['Người giao tài sản', 'Người nhận tài sản', 'Trưởng bộ phận / Giám đốc'], [rec.signatureGiver || d.fromUserName, rec.signatureReceiver || d.toUserName, rec.signatureManager || ctx.settings.company.representative])}
+  ${signatures(ctx.settings, ['Người giao tài sản', 'Người nhận tài sản', 'Trưởng bộ phận / Giám đốc'], [rec.signatureGiver || d.fromUserName, rec.signatureReceiver || d.toUserName, rec.signatureManager || ctx.settings.company.representative], { docType: 'assignment', docId: id, docCode: d.code, roles: ['giver', 'receiver', 'manager'] })}
   <div style="text-align:right;font-family:Inter,Arial;font-size:9pt;color:#64748b;margin-top:24px">Mã phiếu: ${esc(d.code)}</div>`;
-  return wrap(ctx.settings, title, body);
+  return wrap(ctx.settings, title, body, { docType: 'assignment', docId: id, docCode: d.code, roles: digisig.getRolesForDoc('assignment') });
 }
 
 function transferDoc(id, ctx) {
@@ -185,8 +530,8 @@ function transferDoc(id, ctx) {
     ['Trạng thái', esc(({ draft:'Nháp', pending:'Chờ duyệt', approved:'Đã duyệt', completed:'Hoàn thành', rejected:'Từ chối', cancelled:'Đã huỷ' }[rec.status] || rec.status))],
   ])}
   <p class="note">Các bên có trách nhiệm bàn giao đầy đủ tài sản, phụ kiện kèm theo và cập nhật sổ theo dõi tài sản theo quy định.</p>
-  ${signatures(ctx.settings, ['Người đề nghị', 'Người giao', 'Người nhận', 'Giám đốc duyệt'], [d.requestedByName, d.fromUserName, d.toUserName, d.approvedByName || ctx.settings.company.representative])}`;
-  return wrap(ctx.settings, title, body);
+  ${signatures(ctx.settings, ['Người đề nghị', 'Người giao', 'Người nhận', 'Giám đốc duyệt'], [d.requestedByName, d.fromUserName, d.toUserName, d.approvedByName || ctx.settings.company.representative], { docType: 'transfer', docId: id, docCode: d.code, roles: ['requester', 'giver', 'receiver', 'approver'] })}`;
+  return wrap(ctx.settings, title, body, { docType: 'transfer', docId: id, docCode: d.code, roles: digisig.getRolesForDoc('transfer') });
 }
 
 function maintenanceDoc(id, ctx) {
@@ -225,8 +570,8 @@ function maintenanceDoc(id, ctx) {
     </tbody>
     <tfoot><tr><td>TỔNG CỘNG</td><td class="num">${money((rec.cost || 0) + (rec.partsCost || 0))}</td><td></td></tr></tfoot>
   </table>
-  ${signatures(ctx.settings, ['Người báo hỏng', 'Kỹ thuật viên', 'Trưởng bộ phận KT', 'Giám đốc'], ['', rec.technician || '', '', ctx.settings.company.representative])}`;
-  return wrap(ctx.settings, title, body);
+  ${signatures(ctx.settings, ['Người báo hỏng', 'Kỹ thuật viên', 'Trưởng bộ phận KT', 'Giám đốc'], ['', rec.technician || '', '', ctx.settings.company.representative], { docType: 'maintenance', docId: id, docCode: d.code, roles: ['reporter', 'technician', 'supervisor', 'manager'] })}`;
+  return wrap(ctx.settings, title, body, { docType: 'maintenance', docId: id, docCode: d.code, roles: digisig.getRolesForDoc('maintenance') });
 }
 
 function disposalDoc(id, ctx) {
@@ -265,8 +610,8 @@ function disposalDoc(id, ctx) {
     ['Chi phí thanh lý', money(rec.disposalCost)],
   ])}
   <p class="note">Hội đồng thống nhất thanh lý tài sản nêu trên và đề nghị bộ phận kế toán ghi giảm tài sản, hạch toán thu nhập/chi phí theo quy định hiện hành.</p>
-  ${signatures(ctx.settings, ['Chủ tịch hội đồng', 'Uỷ viên', 'Kế toán', 'Giám đốc'], [(Array.isArray(rec.council) && rec.council[0]) || ctx.settings.company.representative, (Array.isArray(rec.council) && rec.council[1]) || '', ctx.settings.company.accountant, ctx.settings.company.representative])}`;
-  return wrap(ctx.settings, title, body);
+  ${signatures(ctx.settings, ['Chủ tịch hội đồng', 'Uỷ viên', 'Kế toán', 'Giám đốc'], [(Array.isArray(rec.council) && rec.council[0]) || ctx.settings.company.representative, (Array.isArray(rec.council) && rec.council[1]) || '', ctx.settings.company.accountant, ctx.settings.company.representative], { docType: 'disposal', docId: id, docCode: d.code, roles: ['president', 'member', 'accountant', 'manager'] })}`;
+  return wrap(ctx.settings, title, body, { docType: 'disposal', docId: id, docCode: d.code, roles: digisig.getRolesForDoc('disposal') });
 }
 
 function stocktakeDoc(id, ctx) {
@@ -303,8 +648,8 @@ function stocktakeDoc(id, ctx) {
     <tfoot><tr><td colspan="6">TỔNG CỘNG: ${items.length} tài sản — Khớp: ${items.filter((i) => i.result === 'match').length} — Chênh lệch: ${items.filter((i) => i.result && i.result !== 'match').length}</td><td colspan="2"></td></tr></tfoot>
   </table>
   <p class="note">Ban kiểm kê xác nhận số liệu trên là đúng với thực tế kiểm tra tại thời điểm lập biên bản. Các trường hợp chênh lệch đã được ghi nhận và đề xuất xử lý theo quy định.</p>
-  ${signatures(ctx.settings, ['Trưởng ban kiểm kê', 'Thành viên', 'Kế toán', 'Giám đốc'], [d.leaderName, (Array.isArray(rec.members) && rec.members[0]) || '', ctx.settings.company.accountant, ctx.settings.company.representative])}`;
-  return wrap(ctx.settings, title, body);
+  ${signatures(ctx.settings, ['Trưởng ban kiểm kê', 'Thành viên', 'Kế toán', 'Giám đốc'], [d.leaderName, (Array.isArray(rec.members) && rec.members[0]) || '', ctx.settings.company.accountant, ctx.settings.company.representative], { docType: 'stocktake', docId: id, docCode: d.code, roles: ['leader', 'member', 'accountant', 'manager'] })}`;
+  return wrap(ctx.settings, title, body, { docType: 'stocktake', docId: id, docCode: d.code, roles: digisig.getRolesForDoc('stocktake') });
 }
 
 function warrantyDoc(id, ctx) {
@@ -327,8 +672,8 @@ function warrantyDoc(id, ctx) {
   <div class="section">Kết quả xử lý</div>
   <p class="note">${esc(rec.resolution || 'Chưa xử lý')}</p>
   ${infoTable([['Ngày hoàn tất', rec.resolvedDate ? date(rec.resolvedDate) : ''], ['Chi phí phát sinh', money(rec.cost)]])}
-  ${signatures(ctx.settings, ['Người yêu cầu', 'Đại diện đơn vị bảo hành', 'Xác nhận của công ty'], ['', '', ctx.settings.company.representative])}`;
-  return wrap(ctx.settings, title, body);
+  ${signatures(ctx.settings, ['Người yêu cầu', 'Đại diện đơn vị bảo hành', 'Xác nhận của công ty'], ['', '', ctx.settings.company.representative], { docType: 'warranty', docId: id, docCode: d.code, roles: ['requester', 'provider', 'company'] })}`;
+  return wrap(ctx.settings, title, body, { docType: 'warranty', docId: id, docCode: d.code, roles: digisig.getRolesForDoc('warranty') });
 }
 
 /* ---------------------------- Nhãn tem tài sản ----------------------------
@@ -495,8 +840,8 @@ function depreciationDoc(id, ctx) {
     </tbody>
     <tfoot><tr><td colspan="3">TỔNG KHẤU HAO ĐÃ GHI SỔ</td><td class="num">${money(rows.reduce((s, r) => s + Number(r.depreciationAmount || 0), 0))}</td><td colspan="4"></td></tr></tfoot>
   </table>
-  ${signatures(ctx.settings, ['Người lập biểu', 'Kế toán trưởng', 'Giám đốc'], ['', ctx.settings.company.accountant, ctx.settings.company.representative])}`;
-  return wrap(ctx.settings, title, body);
+  ${signatures(ctx.settings, ['Người lập biểu', 'Kế toán trưởng', 'Giám đốc'], ['', ctx.settings.company.accountant, ctx.settings.company.representative], { docType: 'depreciation', docId: id, docCode: dec.code, roles: ['preparer', 'accountant', 'manager'] })}`;
+  return wrap(ctx.settings, title, body, { docType: 'depreciation', docId: id, docCode: dec.code, roles: digisig.getRolesForDoc('depreciation') });
 }
 
 function contractDoc(id, ctx) {
@@ -529,8 +874,8 @@ function contractDoc(id, ctx) {
     </tbody>
     <tfoot><tr><td colspan="4">TỔNG CỘNG</td><td class="num">${money(assets.reduce((s, a) => s + Number(a.originalCost || 0), 0))}</td><td class="num">${money(assets.reduce((s, a) => s + Number(a.bookValue || 0), 0))}</td><td></td></tr></tfoot>
   </table>
-  ${signatures(ctx.settings, ['Người lập bảng kê', 'Kế toán trưởng', 'Giám đốc'], ['', ctx.settings.company.accountant, ctx.settings.company.representative])}`;
-  return wrap(ctx.settings, title, body);
+  ${signatures(ctx.settings, ['Người lập bảng kê', 'Kế toán trưởng', 'Giám đốc'], ['', ctx.settings.company.accountant, ctx.settings.company.representative], { docType: 'contract', docId: id, docCode: d.code, roles: ['preparer', 'accountant', 'manager'] })}`;
+  return wrap(ctx.settings, title, body, { docType: 'contract', docId: id, docCode: d.code, roles: digisig.getRolesForDoc('contract') });
 }
 
 const HANDLERS = {

@@ -519,6 +519,96 @@ async function testDocuments() {
   }
 }
 
+async function testPWAAndDigitalSignatures() {
+  section('7b. PWA Di động & Chữ ký số trên chứng từ');
+
+  // 1. PWA Web App Manifest
+  const manifest = await GET('/manifest.webmanifest', { raw: true });
+  check('Tệp PWA Manifest (/manifest.webmanifest) tải thành công', manifest.status === 200);
+  let mf = {};
+  try { mf = JSON.parse(manifest.body.toString()); } catch (e) {}
+  check('PWA Manifest có cấu hình display standalone và đầy đủ biểu tượng',
+    mf.display === 'standalone' && Array.isArray(mf.icons) && mf.icons.length >= 3 && Array.isArray(mf.shortcuts),
+    (mf.name || '') + ' • ' + (mf.icons ? mf.icons.length : 0) + ' biểu tượng');
+
+  // 2. Service Worker & Icons
+  const sw = await GET('/sw.js', { raw: true });
+  check('Tệp Service Worker (/sw.js) khả dụng', sw.status === 200 && sw.body.toString().includes('CACHE_NAME'), (sw.body.length / 1024).toFixed(1) + ' KB');
+
+  const icon192 = await GET('/icon-192.png', { raw: true });
+  check('Biểu tượng PWA 192x192 PNG chuẩn', icon192.status === 200 && icon192.body.length > 500, icon192.body.length + ' bytes');
+
+  const icon512 = await GET('/icon-512.png', { raw: true });
+  check('Biểu tượng PWA 512x512 PNG chuẩn', icon512.status === 200 && icon512.body.length > 1000, icon512.body.length + ' bytes');
+
+  // 3. Chứng thư số Doanh nghiệp (CA Certificate)
+  const certRes = await GET('/api/documents/certificate');
+  const cert = certRes.json.data;
+  check('Chứng thư số doanh nghiệp (CA Certificate) khả dụng',
+    certRes.status === 200 && cert.serial && cert.publicKeyPem && cert.algorithm.includes('RSA'),
+    cert.serial + ' • ' + cert.algorithm);
+
+  // 4. Ký số chứng từ (RSA 2048-bit + SHA-256)
+  const assignId = created.assignments && created.assignments[0];
+  const signRes = await POST('/api/documents/sign', {
+    docType: 'assignment',
+    docId: String(assignId),
+    role: 'giver',
+    roleLabel: 'Người giao tài sản',
+    signerTitle: 'Trưởng bộ phận Bàn giao',
+    signerName: 'Nguyễn Văn Minh',
+    pin: '123456',
+  });
+  const sig = signRes.json.data;
+  check('Ký số chứng từ thành công với chữ ký RSA 2048-bit & mã băm SHA-256',
+    signRes.status === 200 && sig.code && sig.signature && sig.signature.length === 512 && sig.contentHash.length === 64,
+    (sig && sig.code) + ' • chữ ký 512 hex • hash: ' + (sig && sig.contentHash.substring(0, 16)) + '…');
+
+  // 5. Lấy danh sách chữ ký của chứng từ
+  const docSigsRes = await GET('/api/documents/assignment/' + assignId + '/signatures');
+  check('API tra cứu chữ ký theo chứng từ hoạt động đúng',
+    docSigsRes.status === 200 && Array.isArray(docSigsRes.json.data) && docSigsRes.json.data.some((s) => s.code === sig.code));
+
+  // 6. Danh sách toàn bộ chữ ký số trong hệ thống
+  const allSigsRes = await GET('/api/documents/signatures');
+  check('API danh sách tất cả chữ ký số',
+    allSigsRes.status === 200 && Array.isArray(allSigsRes.json.data) && allSigsRes.json.data.length >= 1,
+    allSigsRes.json.data.length + ' chữ ký');
+
+  // 7. Xác thực tính toàn vẹn và mật mã học (Verify API)
+  const verifRes = await POST('/api/documents/verify', { code: sig.code });
+  const v = verifRes.json.data;
+  check('Xác thực chữ ký số: Mật mã học hợp lệ (RSA) & Nội dung toàn vẹn (SHA-256)',
+    verifRes.status === 200 && v.valid === true && v.cryptoValid === true && v.contentIntact === true,
+    'Mật mã: ' + v.cryptoValid + ' • Toàn vẹn: ' + v.contentIntact);
+
+  // 8. Cổng tra cứu xác thực công khai (Public HTML không cần đăng nhập)
+  const publicVerif = await GET('/api/documents/verify?code=' + sig.code, { accept: 'text/html', raw: true, headers: { Authorization: '' } });
+  const pvh = publicVerif.body.toString();
+  check('Cổng tra cứu xác thực công khai hiển thị chứng nhận điện tử chuẩn Nghị định 130',
+    publicVerif.status === 200 && pvh.includes('CHỨNG TỪ HỢP LỆ') && pvh.includes(sig.code) && pvh.includes('130/2018/NĐ-CP'),
+    sig.code);
+
+  // 9. Chứng từ in có hiển thị con dấu điện tử và mã QR tra cứu
+  const docHtmlRes = await GET('/api/documents/assignment/' + assignId, { raw: true });
+  const dh = docHtmlRes.body.toString();
+  check('Chứng từ in hiển thị con dấu điện tử hợp lệ kèm mã tra cứu',
+    dh.includes('KÝ SỐ ĐIỆN TỬ') && dh.includes(sig.code) && dh.includes('stamp-box'),
+    'có con dấu ' + sig.code);
+  check('Chứng từ in có khung pháp lý và mã QR tra cứu xác thực',
+    dh.includes('doc-verif-card') && dh.includes('/api/documents/verify?code=') && dh.includes('<svg'),
+    'có QR xác thực');
+
+  // 10. Thu hồi chữ ký số
+  const revokeRes = await POST('/api/documents/signatures/' + sig.id + '/revoke', { reason: 'Thu hồi thử nghiệm smoke-test' });
+  check('Thu hồi chữ ký số thành công', revokeRes.status === 200 && revokeRes.json.data.status === 'revoked');
+
+  const reVerif = await POST('/api/documents/verify', { code: sig.code });
+  check('Chữ ký sau khi thu hồi bị đánh dấu không còn hiệu lực',
+    reVerif.status === 200 && reVerif.json.data.valid === false && reVerif.json.data.isRevoked === true,
+    'Trạng thái: ' + reVerif.json.data.status);
+}
+
 async function testScan() {
   section('8. Quét mã QR / mã vạch (kiểm kê nhanh)');
 
@@ -776,6 +866,7 @@ async function testAdmin() {
   check('Khôi phục mật khẩu demo cho admin', back.status === 200, 'status=' + back.status);
   const restore = await POST('/api/auth/login', { username: 'admin', password: 'Admin@123' });
   check('Đăng nhập lại bằng Admin@123', restore.status === 200, 'status=' + restore.status);
+  await POST('/api/auth/change-password', { currentPassword: 'Admin@123', newPassword: 'Admin@123' });
   const victim = (await GET('/api/entities/users?limit=50')).json.data.find((u) => u.id !== adminUser.id && u.status === 'active');
   if (victim) {
     const toggle = await POST('/api/admin/users/' + victim.id + '/toggle-status', {});
@@ -838,6 +929,7 @@ async function cleanup() {
     await testDepreciation();
     await testReports();
     await testDocuments();
+    await testPWAAndDigitalSignatures();
     await testScan();
     await testAdmin();
   } catch (e) {

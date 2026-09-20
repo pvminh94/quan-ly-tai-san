@@ -1406,6 +1406,7 @@
         { label: 'Kiểm kê', icon: '🧮', title: 'Vào màn hình kiểm kê', showIf: (row) => row.status === 'open', onClick: (row) => App.Router.navigate(`/stocktakes/${row.id}/count`) },
         { label: 'Quét mã QR', icon: '📷', title: 'Quét mã QR/mã vạch để đếm nhanh', showIf: (row) => row.status === 'open', onClick: (row) => App.Router.navigate(`/scan?stocktake=${row.id}`) },
         { label: 'In BB', icon: '🖨', title: 'In biên bản kiểm kê', onClick: (row) => API.openHTML(`/api/documents/stocktake/${row.id}`) },
+        { label: 'Ký số', icon: '✍️', title: 'Ký số biên bản kiểm kê', onClick: (row) => Pages.signatureDialog({ docType: 'stocktake', docId: row.id, docCode: row.code }) },
       ],
     });
   };
@@ -1416,6 +1417,7 @@
         { label: 'Duyệt', icon: '✔', title: 'Phê duyệt', showIf: (row) => row.status === 'pending' && App.can('transfers', 'approve'), onClick: (row) => Actions.workflow('transfers', row.id, 'approve', () => App.Router.resolve()) },
         { label: 'Từ chối', icon: '✖', title: 'Từ chối', showIf: (row) => row.status === 'pending' && App.can('transfers', 'approve'), onClick: (row) => Actions.workflow('transfers', row.id, 'reject', () => App.Router.resolve()) },
         { label: 'In', icon: '🖨', title: 'In phiếu điều chuyển', onClick: (row) => API.openHTML(`/api/documents/transfer/${row.id}`) },
+        { label: 'Ký số', icon: '✍️', title: 'Ký số phiếu điều chuyển', onClick: (row) => Pages.signatureDialog({ docType: 'transfer', docId: row.id, docCode: row.code }) },
       ],
     });
   };
@@ -1426,6 +1428,7 @@
         { label: 'Duyệt', icon: '✔', showIf: (row) => row.status === 'pending' && App.can('disposals', 'approve'), onClick: (row) => Actions.workflow('disposals', row.id, 'approve', () => App.Router.resolve()) },
         { label: 'Hoàn tất', icon: '🏁', showIf: (row) => row.status === 'approved' && App.can('disposals', 'update'), onClick: (row) => Actions.workflow('disposals', row.id, 'complete', () => App.Router.resolve()) },
         { label: 'In BB', icon: '🖨', onClick: (row) => API.openHTML(`/api/documents/disposal/${row.id}`) },
+        { label: 'Ký số', icon: '✍️', title: 'Ký số biên bản thanh lý', onClick: (row) => Pages.signatureDialog({ docType: 'disposal', docId: row.id, docCode: row.code }) },
       ],
     });
   };
@@ -1435,25 +1438,35 @@
       extraActions: [
         { label: 'Hoàn thành', icon: '✔', showIf: (row) => ['pending', 'approved', 'in_progress'].includes(row.status) && App.can('maintenances', 'update'), onClick: (row) => Actions.workflow('maintenances', row.id, 'complete', () => App.Router.resolve()) },
         { label: 'In', icon: '🖨', onClick: (row) => API.openHTML(`/api/documents/maintenance/${row.id}`) },
+        { label: 'Ký số', icon: '✍️', title: 'Ký số phiếu bảo trì', onClick: (row) => Pages.signatureDialog({ docType: 'maintenance', docId: row.id, docCode: row.code }) },
       ],
     });
   };
 
   Pages.warrantiesPage = function (container) {
     return Pages.entityList('warranties', container, {
-      extraActions: [{ label: 'In', icon: '🖨', onClick: (row) => API.openHTML(`/api/documents/warranty/${row.id}`) }],
+      extraActions: [
+        { label: 'In', icon: '🖨', onClick: (row) => API.openHTML(`/api/documents/warranty/${row.id}`) },
+        { label: 'Ký số', icon: '✍️', title: 'Ký số yêu cầu bảo hành', onClick: (row) => Pages.signatureDialog({ docType: 'warranty', docId: row.id, docCode: row.code }) },
+      ],
     });
   };
 
   Pages.contractsPage = function (container) {
     return Pages.entityList('contracts', container, {
-      extraActions: [{ label: 'Bảng kê', icon: '🖨', title: 'In bảng kê tài sản theo hợp đồng', onClick: (row) => API.openHTML(`/api/documents/contract/${row.id}`) }],
+      extraActions: [
+        { label: 'Bảng kê', icon: '🖨', title: 'In bảng kê tài sản theo hợp đồng', onClick: (row) => API.openHTML(`/api/documents/contract/${row.id}`) },
+        { label: 'Ký số', icon: '✍️', title: 'Ký số bảng kê hợp đồng', onClick: (row) => Pages.signatureDialog({ docType: 'contract', docId: row.id, docCode: row.code }) },
+      ],
     });
   };
 
   Pages.assignmentsPage = function (container) {
     return Pages.entityList('assignments', container, {
-      extraActions: [{ label: 'In BB', icon: '🖨', title: 'In biên bản bàn giao', onClick: (row) => API.openHTML(`/api/documents/assignment/${row.id}`) }],
+      extraActions: [
+        { label: 'In BB', icon: '🖨', title: 'In biên bản bàn giao', onClick: (row) => API.openHTML(`/api/documents/assignment/${row.id}`) },
+        { label: 'Ký số', icon: '✍️', title: 'Ký số biên bản bàn giao', onClick: (row) => Pages.signatureDialog({ docType: 'assignment', docId: row.id, docCode: row.code }) },
+      ],
     });
   };
 
@@ -1484,6 +1497,618 @@
       UI.toast('Đã quét cảnh báo', `${r.data.created} thông báo mới được tạo`, 'success');
       App.refreshNotifications(); render();
     };
+  };
+
+  /* ============================== CHỮ KÝ SỐ CHỨNG TỪ ============================== */
+
+  Pages.signaturesPage = async function (container) {
+    container.innerHTML = pageHead(
+      'Chữ ký số & Chứng từ điện tử',
+      'Quản lý chữ ký số mật mã học RSA 2048-bit + SHA-256, tra cứu tính toàn vẹn và thông tin chứng thư số doanh nghiệp.',
+      `<button class="btn success" id="sig-btn-sign">✍️ Ký chứng từ mới</button>
+       <button class="btn" id="sig-btn-verify">🔍 Tra cứu &amp; Xác thực</button>
+       <button class="btn ghost" id="sig-btn-cert">📜 Chứng thư số CA</button>`
+    );
+
+    const host = document.createElement('div');
+    container.appendChild(host);
+
+    container.querySelector('#sig-btn-sign').onclick = () => Pages.signatureDialog({ onSigned: render });
+    container.querySelector('#sig-btn-verify').onclick = () => Pages.signatureVerifyDialog();
+    container.querySelector('#sig-btn-cert').onclick = () => Pages.certificateDialog();
+
+    const render = async () => {
+      host.innerHTML = '<div class="page-loading"><div class="spinner"></div><span>Đang tải danh sách chữ ký số…</span></div>';
+      try {
+        const res = await API.get('/api/documents/signatures');
+        const rows = res.data || [];
+
+        const totalSigs = rows.length;
+        const validSigs = rows.filter((s) => s.status === 'valid').length;
+        const revokedSigs = rows.filter((s) => s.status === 'revoked').length;
+
+        const docTypeLabels = {
+          assignment: 'Bàn giao tài sản',
+          transfer: 'Điều chuyển tài sản',
+          maintenance: 'Bảo trì - sửa chữa',
+          disposal: 'Thanh lý tài sản',
+          stocktake: 'Kiểm kê tài sản',
+          warranty: 'Bảo hành tài sản',
+          depreciation: 'Bảng khấu hao',
+          contract: 'Hợp đồng tài sản',
+        };
+
+        host.innerHTML = `
+          <!-- Thống kê chữ ký số -->
+          <div class="grid cols-4" style="margin-bottom:14px">
+            <div class="stat-card">
+              <div class="stat-val" style="color:var(--c-primary)">${totalSigs}</div>
+              <div class="stat-label">Tổng chứng từ đã ký</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val" style="color:#16a34a">${validSigs}</div>
+              <div class="stat-label">Chữ ký hợp lệ (Active)</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val" style="color:#dc2626">${revokedSigs}</div>
+              <div class="stat-label">Chữ ký đã thu hồi</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val" style="color:#0891b2">RSA-2048</div>
+              <div class="stat-label">Thuật toán PKI &amp; SHA-256</div>
+            </div>
+          </div>
+
+          <!-- Bộ lọc & tìm kiếm -->
+          <div class="card" style="margin-bottom:14px">
+            <div class="table-toolbar" style="padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+              <input type="search" id="sig-search" placeholder="Tìm theo mã SIG, mã chứng từ, người ký…" style="width:260px" autocomplete="off"/>
+              <select id="sig-filter-type" style="width:180px">
+                <option value="">Tất cả loại chứng từ</option>
+                <option value="assignment">Bàn giao tài sản</option>
+                <option value="transfer">Điều chuyển tài sản</option>
+                <option value="maintenance">Bảo trì - sửa chữa</option>
+                <option value="disposal">Thanh lý tài sản</option>
+                <option value="stocktake">Kiểm kê tài sản</option>
+                <option value="warranty">Bảo hành tài sản</option>
+                <option value="depreciation">Bảng khấu hao</option>
+                <option value="contract">Hợp đồng</option>
+              </select>
+              <select id="sig-filter-status" style="width:140px">
+                <option value="">Tất cả trạng thái</option>
+                <option value="valid">Hợp lệ</option>
+                <option value="revoked">Đã thu hồi</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Bảng danh sách chữ ký số -->
+          <div class="card">
+            <div id="sig-table-wrap"></div>
+          </div>
+        `;
+
+        const searchInput = host.querySelector('#sig-search');
+        const filterType = host.querySelector('#sig-filter-type');
+        const filterStatus = host.querySelector('#sig-filter-status');
+        const tableWrap = host.querySelector('#sig-table-wrap');
+
+        const renderTable = () => {
+          const q = (searchInput.value || '').trim().toLowerCase();
+          const t = filterType.value;
+          const s = filterStatus.value;
+
+          let filtered = rows.slice();
+          if (t) filtered = filtered.filter((r) => r.docType === t);
+          if (s) filtered = filtered.filter((r) => r.status === s);
+          if (q) {
+            filtered = filtered.filter(
+              (r) =>
+                (r.code && r.code.toLowerCase().includes(q)) ||
+                (r.docCode && r.docCode.toLowerCase().includes(q)) ||
+                (r.signerName && r.signerName.toLowerCase().includes(q)) ||
+                (r.signerTitle && r.signerTitle.toLowerCase().includes(q))
+            );
+          }
+
+          if (!filtered.length) {
+            tableWrap.innerHTML = UI.emptyState(
+              '✍️',
+              'Chưa có chữ ký số nào phù hợp',
+              'Chọn "Ký chứng từ mới" hoặc thay đổi bộ lọc để xem kết quả.'
+            );
+            return;
+          }
+
+          tableWrap.innerHTML = `
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width:140px">Mã xác thực</th>
+                    <th style="width:150px">Loại chứng từ</th>
+                    <th>Mã chứng từ</th>
+                    <th>Người ký</th>
+                    <th>Vai trò</th>
+                    <th style="width:150px">Thời gian ký</th>
+                    <th style="width:110px">Trạng thái</th>
+                    <th style="width:140px;text-align:right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${filtered
+                    .map((r) => {
+                      const dt = r.signedAt ? new Date(r.signedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : '—';
+                      const isVal = r.status === 'valid';
+                      return `
+                      <tr>
+                        <td><b class="mono" style="color:var(--c-primary)">${U.esc(r.code)}</b></td>
+                        <td>${U.esc(docTypeLabels[r.docType] || r.docType)}</td>
+                        <td><strong class="mono">${U.esc(r.docCode)}</strong></td>
+                        <td>
+                          <div><b>${U.esc(r.signerName)}</b></div>
+                          <div class="tiny muted">${U.esc(r.signerTitle || '')}</div>
+                        </td>
+                        <td><span class="badge" style="background:var(--bg-muted);color:var(--text)">${U.esc(r.roleLabel || r.role)}</span></td>
+                        <td class="tiny muted">${U.esc(dt)}</td>
+                        <td>
+                          <span class="badge ${isVal ? 'b-ok' : 'b-warn'}">${isVal ? '✓ Hợp lệ' : 'Đã thu hồi'}</span>
+                        </td>
+                        <td style="text-align:right">
+                          <button class="icon-btn" title="Xem chứng từ in có con dấu" data-view="${r.docType}:${r.docId}">🖨</button>
+                          <button class="icon-btn" title="Xác thực chữ ký số" data-verify="${r.code}">🔍</button>
+                          ${isVal ? `<button class="icon-btn" title="Thu hồi chữ ký số" data-revoke="${r.id}" style="color:#ef4444">✕</button>` : ''}
+                        </td>
+                      </tr>`;
+                    })
+                    .join('')}
+                </tbody>
+              </table>
+            </div>
+          `;
+
+          tableWrap.querySelectorAll('[data-view]').forEach((btn) => {
+            btn.onclick = () => {
+              const [dt, did] = btn.dataset.view.split(':');
+              API.openHTML(`/api/documents/${dt}/${did}`);
+            };
+          });
+
+          tableWrap.querySelectorAll('[data-verify]').forEach((btn) => {
+            btn.onclick = () => Pages.signatureVerifyDialog(btn.dataset.verify);
+          });
+
+          tableWrap.querySelectorAll('[data-revoke]').forEach((btn) => {
+            btn.onclick = async () => {
+              const id = btn.dataset.revoke;
+              const okk = await UI.confirm({
+                title: 'Thu hồi chữ ký số?',
+                message: 'Sau khi thu hồi, chứng từ này sẽ không còn giá trị xác thực điện tử. Bạn có chắc chắn?',
+                confirmText: 'Thu hồi chữ ký',
+                danger: true,
+              });
+              if (!okk) return;
+              try {
+                UI.loading(true, 'Đang thu hồi…');
+                await API.post(`/api/documents/signatures/${id}/revoke`, { reason: 'Thu hồi theo yêu cầu quản trị' });
+                UI.loading(false);
+                UI.toast('Đã thu hồi chữ ký', '', 'success');
+                render();
+              } catch (e) {
+                UI.loading(false);
+                UI.toast('Không thể thu hồi', e.message, 'danger');
+              }
+            };
+          });
+        };
+
+        searchInput.oninput = U.debounce(renderTable, 200);
+        filterType.onchange = renderTable;
+        filterStatus.onchange = renderTable;
+        renderTable();
+      } catch (err) {
+        host.innerHTML = UI.emptyState('⚠️', 'Lỗi tải dữ liệu', err.message);
+      }
+    };
+
+    await render();
+  };
+
+  Pages.signatureVerifyPage = function (container) {
+    const q = App.state.route.query || {};
+    const code = q.code || '';
+    container.innerHTML = pageHead('Tra cứu & Xác thực Chữ ký số', 'Kiểm tra tính toàn vẹn và thẩm quyền ký số của chứng từ điện tử', '');
+    const wrap = document.createElement('div');
+    container.appendChild(wrap);
+    Pages.signatureVerifyDialog(code);
+  };
+
+  Pages.signatureDialog = async function (opts) {
+    const o = opts || {};
+    const me = App.state.user || {};
+
+    const docTypes = [
+      { key: 'assignment', label: 'Biên bản bàn giao tài sản' },
+      { key: 'transfer', label: 'Phiếu điều chuyển tài sản' },
+      { key: 'maintenance', label: 'Phiếu bảo trì - sửa chữa' },
+      { key: 'disposal', label: 'Biên bản thanh lý tài sản' },
+      { key: 'stocktake', label: 'Biên bản kiểm kê tài sản' },
+      { key: 'warranty', label: 'Phiếu yêu cầu bảo hành' },
+      { key: 'depreciation', label: 'Bảng tính khấu hao' },
+      { key: 'contract', label: 'Hợp đồng tài sản' },
+    ];
+
+    const defaultType = o.docType || 'assignment';
+
+    const modal = UI.modal({
+      size: 'md',
+      title: '✍️ Ký số chứng từ điện tử',
+      body: `
+        <form id="sd-form">
+          <div class="form-grid">
+            <div class="field span-2">
+              <label>Loại chứng từ</label>
+              <select id="sd-type" ${o.docType ? 'disabled' : ''}>
+                ${docTypes.map((t) => `<option value="${t.key}" ${t.key === defaultType ? 'selected' : ''}>${U.esc(t.label)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field span-2">
+              <label>Mã định danh hoặc Số phiếu cần ký</label>
+              <input type="text" id="sd-id" placeholder="vd: 1 (ID bản ghi)" value="${o.docId ? U.esc(String(o.docId)) : ''}" ${o.docId ? 'readonly' : ''} required/>
+              ${o.docCode ? `<div class="tiny muted" style="margin-top:2px">Chứng từ: <b class="mono">${U.esc(o.docCode)}</b></div>` : ''}
+            </div>
+            <div class="field">
+              <label>Vai trò ký</label>
+              <select id="sd-role" required></select>
+            </div>
+            <div class="field">
+              <label>Chức danh / Chức vụ người ký</label>
+              <input type="text" id="sd-title" placeholder="Kế toán trưởng / Đại diện" value="${U.esc(me.roleName || '')}" required/>
+            </div>
+            <div class="field span-2">
+              <label>Họ và tên người ký</label>
+              <input type="text" id="sd-name" value="${U.esc(me.fullName || '')}" required/>
+            </div>
+            <div class="field span-2">
+              <label>Phương thức xác thực chữ ký</label>
+              <div style="display:flex;gap:14px;margin-top:4px">
+                <label style="font-weight:normal;display:inline-flex;align-items:center;gap:4px">
+                  <input type="radio" name="sd-method" value="cert" checked/> Con dấu số điện tử PKI (RSA-2048 + SHA-256)
+                </label>
+                <label style="font-weight:normal;display:inline-flex;align-items:center;gap:4px">
+                  <input type="radio" name="sd-method" value="hand"/> Ký tay cảm ứng (Canvas Pad)
+                </label>
+              </div>
+            </div>
+            <div class="field span-2" id="sd-pad-group" style="display:none">
+              <label>Vẽ chữ ký (chuột hoặc ngón tay trên điện thoại)</label>
+              <div class="sig-canvas-wrap">
+                <canvas id="sd-canvas" width="420" height="120"></canvas>
+                <div class="sig-canvas-actions">
+                  <span>Chạm hoặc kéo chuột để ký tên</span>
+                  <button type="button" class="btn sm" id="sd-clear" style="color:#ef4444">Xóa vẽ lại</button>
+                </div>
+              </div>
+            </div>
+            <div class="field span-2">
+              <label>Mã PIN ký số bảo mật</label>
+              <input type="password" id="sd-pin" placeholder="Mã PIN ký số (mặc định thử nghiệm: 123456)"/>
+              <div class="tiny muted" style="margin-top:2px">Đảm bảo tính chống chối bỏ theo quy định tại Nghị định 130/2018/NĐ-CP.</div>
+            </div>
+          </div>
+          <div class="modal-foot" style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">
+            <button type="button" class="btn ghost" id="sd-cancel">Đóng</button>
+            <button type="submit" class="btn success">✍️ Ký &amp; Đóng dấu điện tử</button>
+          </div>
+        </form>
+      `,
+    });
+
+    const mRoot = modal.el;
+    const elType = mRoot.querySelector('#sd-type');
+    const elId = mRoot.querySelector('#sd-id');
+    const elRole = mRoot.querySelector('#sd-role');
+    const elTitle = mRoot.querySelector('#sd-title');
+    const elName = mRoot.querySelector('#sd-name');
+    const elPin = mRoot.querySelector('#sd-pin');
+    const elPadGroup = mRoot.querySelector('#sd-pad-group');
+    const canvas = mRoot.querySelector('#sd-canvas');
+    const form = mRoot.querySelector('#sd-form');
+
+    const ROLES_MAP = {
+      assignment: [
+        { key: 'giver', label: 'Người giao tài sản', title: 'Nhân viên bàn giao' },
+        { key: 'receiver', label: 'Người nhận tài sản', title: 'Người tiếp nhận' },
+        { key: 'manager', label: 'Trưởng bộ phận / Giám đốc', title: 'Thủ trưởng đơn vị' },
+      ],
+      transfer: [
+        { key: 'requester', label: 'Người đề nghị', title: 'Người đề nghị' },
+        { key: 'giver', label: 'Người giao', title: 'Đại diện bên giao' },
+        { key: 'receiver', label: 'Người nhận', title: 'Đại diện bên nhận' },
+        { key: 'approver', label: 'Giám đốc duyệt', title: 'Giám đốc' },
+      ],
+      maintenance: [
+        { key: 'reporter', label: 'Người báo hỏng', title: 'Người sử dụng' },
+        { key: 'technician', label: 'Kỹ thuật viên', title: 'Kỹ thuật viên phụ trách' },
+        { key: 'supervisor', label: 'Trưởng bộ phận KT', title: 'Trưởng phòng KT' },
+        { key: 'manager', label: 'Giám đốc', title: 'Giám đốc' },
+      ],
+      disposal: [
+        { key: 'president', label: 'Chủ tịch hội đồng', title: 'Chủ tịch HĐTL' },
+        { key: 'member', label: 'Ủy viên hội đồng', title: 'Ủy viên' },
+        { key: 'accountant', label: 'Kế toán', title: 'Kế toán trưởng' },
+        { key: 'manager', label: 'Giám đốc', title: 'Giám đốc' },
+      ],
+      stocktake: [
+        { key: 'leader', label: 'Trưởng ban kiểm kê', title: 'Trưởng ban' },
+        { key: 'member', label: 'Thành viên ban', title: 'Thành viên' },
+        { key: 'accountant', label: 'Kế toán', title: 'Kế toán' },
+        { key: 'manager', label: 'Giám đốc', title: 'Giám đốc' },
+      ],
+      warranty: [
+        { key: 'requester', label: 'Người yêu cầu', title: 'Đại diện công ty' },
+        { key: 'provider', label: 'Đơn vị bảo hành', title: 'Đại diện hãng' },
+        { key: 'company', label: 'Xác nhận của công ty', title: 'Giám đốc' },
+      ],
+      depreciation: [
+        { key: 'preparer', label: 'Người lập biểu', title: 'Kế toán viên' },
+        { key: 'accountant', label: 'Kế toán trưởng', title: 'Kế toán trưởng' },
+        { key: 'manager', label: 'Giám đốc', title: 'Giám đốc' },
+      ],
+      contract: [
+        { key: 'preparer', label: 'Người lập bảng kê', title: 'Chuyên viên' },
+        { key: 'accountant', label: 'Kế toán trưởng', title: 'Kế toán trưởng' },
+        { key: 'manager', label: 'Giám đốc', title: 'Giám đốc' },
+      ],
+    };
+
+    const updateRoles = () => {
+      const t = elType.value;
+      const roles = ROLES_MAP[t] || [{ key: 'signer', label: 'Người ký xác nhận', title: 'Người đại diện' }];
+      elRole.innerHTML = roles.map((r) => `<option value="${r.key}" data-title="${U.esc(r.title)}">${U.esc(r.label)}</option>`).join('');
+      if (roles.length && !elTitle.value) elTitle.value = roles[0].title;
+    };
+    elType.onchange = updateRoles;
+    updateRoles();
+
+    elRole.onchange = () => {
+      const opt = elRole.options[elRole.selectedIndex];
+      if (opt && opt.dataset.title) elTitle.value = opt.dataset.title;
+    };
+
+    // Canvas drawing
+    let ctx2d = null;
+    let drawing = false;
+    let hasStrokes = false;
+
+    const initPad = () => {
+      if (ctx2d || !canvas) return;
+      ctx2d = canvas.getContext('2d');
+      ctx2d.lineWidth = 2.5;
+      ctx2d.lineCap = 'round';
+      ctx2d.lineJoin = 'round';
+      ctx2d.strokeStyle = '#1e3a8a';
+
+      const getPos = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const cx = e.touches ? e.touches[0].clientX : e.clientX;
+        const cy = e.touches ? e.touches[0].clientY : e.clientY;
+        return {
+          x: (cx - rect.left) * (canvas.width / rect.width),
+          y: (cy - rect.top) * (canvas.height / rect.height),
+        };
+      };
+
+      const start = (e) => {
+        drawing = true;
+        hasStrokes = true;
+        const p = getPos(e);
+        ctx2d.beginPath();
+        ctx2d.moveTo(p.x, p.y);
+        if (e.cancelable) e.preventDefault();
+      };
+      const move = (e) => {
+        if (!drawing) return;
+        const p = getPos(e);
+        ctx2d.lineTo(p.x, p.y);
+        ctx2d.stroke();
+        if (e.cancelable) e.preventDefault();
+      };
+      const stop = () => { drawing = false; };
+
+      canvas.addEventListener('mousedown', start);
+      canvas.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', stop);
+      canvas.addEventListener('touchstart', start, { passive: false });
+      canvas.addEventListener('touchmove', move, { passive: false });
+      window.addEventListener('touchend', stop);
+    };
+
+    mRoot.querySelectorAll('input[name="sd-method"]').forEach((r) => {
+      r.onchange = () => {
+        const isHand = r.value === 'hand';
+        elPadGroup.style.display = isHand ? 'block' : 'none';
+        if (isHand) setTimeout(initPad, 50);
+      };
+    });
+
+    const btnClear = mRoot.querySelector('#sd-clear');
+    if (btnClear) {
+      btnClear.onclick = () => {
+        if (!ctx2d || !canvas) return;
+        ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+        hasStrokes = false;
+      };
+    }
+
+    mRoot.querySelector('#sd-cancel').onclick = () => modal.close();
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const docType = elType.value;
+      const docId = elId.value.trim();
+      const role = elRole.value;
+      const roleOpt = elRole.options[elRole.selectedIndex];
+      const roleLabel = roleOpt ? roleOpt.textContent : '';
+      const signerTitle = elTitle.value.trim();
+      const signerName = elName.value.trim();
+      const pin = elPin.value.trim();
+
+      let handwrittenSvg = null;
+      if (hasStrokes && canvas) {
+        const dataUrl = canvas.toDataURL('image/png');
+        handwrittenSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" width="160" height="46"><image href="${dataUrl}" width="420" height="120"/></svg>`;
+      }
+
+      UI.loading(true, 'Đang tạo chữ ký mật mã học RSA-2048…');
+      try {
+        const res = await API.post('/api/documents/sign', {
+          docType,
+          docId,
+          role,
+          roleLabel,
+          signerTitle,
+          signerName,
+          pin,
+          handwrittenSvg,
+        });
+        UI.loading(false);
+        UI.closeModal();
+        UI.toast('Ký số thành công!', `Mã xác thực: ${res.data.code}`, 'success');
+        if (typeof o.onSigned === 'function') o.onSigned(res.data);
+      } catch (err) {
+        UI.loading(false);
+        UI.toast('Lỗi ký số', err.message, 'danger');
+      }
+    };
+  };
+
+  Pages.signatureVerifyDialog = async function (initialCode) {
+    const modal = UI.modal({
+      size: 'md',
+      title: '🔍 Tra cứu & Xác thực Chữ ký số',
+      body: `
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-weight:600;margin-bottom:6px;font-size:13px">Nhập Mã tra cứu chữ ký (SIG-2026-XXXXX) hoặc Mã chứng từ</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="vd-input" placeholder="vd: SIG-2026-00001" value="${initialCode ? U.esc(initialCode) : ''}" style="flex:1" autocomplete="off"/>
+            <button class="btn primary" id="vd-btn-verify">Kiểm tra ngay</button>
+          </div>
+        </div>
+        <div id="vd-result"></div>
+      `,
+    });
+
+    const vRoot = modal.el;
+    const input = vRoot.querySelector('#vd-input');
+    const resultBox = vRoot.querySelector('#vd-result');
+    const btn = vRoot.querySelector('#vd-btn-verify');
+
+    const doVerify = async () => {
+      const code = input.value.trim();
+      if (!code) return UI.toast('Vui lòng nhập mã', 'Nhập mã tra cứu để kiểm tra', 'warning');
+
+      resultBox.innerHTML = '<div class="page-loading"><div class="spinner"></div><span>Đang kiểm tra tính toàn vẹn và chữ ký mật mã…</span></div>';
+      try {
+        const res = await API.post('/api/documents/verify', { code });
+        const v = res.data;
+        const rec = v.record || {};
+
+        if (!v.found) {
+          resultBox.innerHTML = `
+            <div class="alert danger">
+              <b>✕ Không tìm thấy chữ ký số</b><br/>
+              Mã xác thực <code>${U.esc(code)}</code> không tồn tại trên hệ thống.
+            </div>`;
+          return;
+        }
+
+        const isValid = v.valid;
+        const isRevoked = v.isRevoked;
+        const isTampered = !v.contentIntact;
+        const dt = rec.signedAt ? new Date(rec.signedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : '—';
+
+        resultBox.innerHTML = `
+          <div class="alert ${isValid ? 'success' : isRevoked ? 'danger' : 'warning'}" style="margin-bottom:12px">
+            <div style="font-weight:700;font-size:14px">${isValid ? '✓ CHỨNG TỪ ĐIỆN TỬ HỢP LỆ' : isRevoked ? '✕ CHỮ KÝ ĐÃ BỊ THU HỒI' : '⚠️ CẢNH BÁO: CHỨNG TỪ BỊ THAY ĐỔI'}</div>
+            <div class="tiny" style="margin-top:2px">${U.esc(v.message)}</div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table" style="font-size:12.5px">
+              <tbody>
+                <tr><td style="width:140px;color:var(--text-muted)">Mã tra cứu</td><td><b class="mono" style="color:var(--c-primary)">${U.esc(rec.code)}</b></td></tr>
+                <tr><td style="color:var(--text-muted)">Chứng từ</td><td><b>${U.esc(rec.docTitle || '')}</b> (<span class="mono">${U.esc(rec.docCode)}</span>)</td></tr>
+                <tr><td style="color:var(--text-muted)">Người ký</td><td><b>${U.esc(rec.signerName)}</b> — ${U.esc(rec.signerTitle || '')}</td></tr>
+                <tr><td style="color:var(--text-muted)">Đơn vị ký</td><td>${U.esc(rec.orgName || '')}</td></tr>
+                <tr><td style="color:var(--text-muted)">Thời gian ký</td><td>${U.esc(dt)}</td></tr>
+                <tr><td style="color:var(--text-muted)">Thuật toán PKI</td><td><span class="mono">${U.esc((rec.certificate && rec.certificate.algorithm) || 'RSA 2048-bit + SHA-256')}</span></td></tr>
+                <tr><td style="color:var(--text-muted)">Toàn vẹn nội dung</td><td>${v.contentIntact ? '<span style="color:#16a34a">✓ Khớp 100% mã băm SHA-256</span>' : '<span style="color:#ef4444">✕ Sai lệch mã băm</span>'}</td></tr>
+                <tr><td style="color:var(--text-muted)">Mã băm SHA-256</td><td><span class="mono tiny" style="word-break:break-all">${U.esc(rec.contentHash || '')}</span></td></tr>
+                <tr><td style="color:var(--text-muted)">Chứng thư CA</td><td>${U.esc((rec.certificate && rec.certificate.issuer) || '')} • Serial: <span class="mono">${U.esc((rec.certificate && rec.certificate.serial) || '')}</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">
+            <button class="btn" id="vd-open-doc">🖨 Xem chứng từ gốc</button>
+            <a class="btn primary" href="/api/documents/verify?code=${encodeURIComponent(rec.code)}" target="_blank">Chứng nhận xác thực ↗</a>
+          </div>
+        `;
+
+        const openDocBtn = resultBox.querySelector('#vd-open-doc');
+        if (openDocBtn) {
+          openDocBtn.onclick = () => API.openHTML(`/api/documents/${rec.docType}/${rec.docId}`);
+        }
+      } catch (err) {
+        resultBox.innerHTML = `<div class="alert danger">Lỗi xác thực: ${U.esc(err.message)}</div>`;
+      }
+    };
+
+    btn.onclick = doVerify;
+    input.onkeydown = (e) => { if (e.key === 'Enter') doVerify(); };
+
+    if (initialCode) doVerify();
+  };
+
+  Pages.certificateDialog = async function () {
+    UI.loading(true, 'Đang tải chứng thư số…');
+    try {
+      const res = await API.get('/api/documents/certificate');
+      UI.loading(false);
+      const c = res.data;
+      UI.modal({
+        size: 'md',
+        title: '📜 Chứng thư số Doanh nghiệp (Enterprise Certificate)',
+        body: `
+          <div style="margin-bottom:12px;background:var(--bg-muted);padding:12px;border-radius:8px">
+            <div style="font-weight:700;color:var(--c-primary);font-size:14px">${U.esc(c.subject)}</div>
+            <div class="tiny muted" style="margin-top:2px">Mã số thuế: ${U.esc(c.taxCode)} • Địa chỉ: ${U.esc(c.address)}</div>
+          </div>
+          <table class="table" style="font-size:12.5px">
+            <tbody>
+              <tr><td style="width:140px;color:var(--text-muted)">Nhà cấp chứng thực (CA)</td><td><b>${U.esc(c.issuer)}</b></td></tr>
+              <tr><td style="color:var(--text-muted)">Số serial chứng thư</td><td><b class="mono" style="color:var(--c-primary)">${U.esc(c.serial)}</b></td></tr>
+              <tr><td style="color:var(--text-muted)">Thuật toán mã hóa</td><td><span class="mono">${U.esc(c.algorithm)}</span></td></tr>
+              <tr><td style="color:var(--text-muted)">Thời hạn hiệu lực</td><td>${U.date(c.validFrom)} — ${U.date(c.validTo)}</td></tr>
+              <tr><td style="color:var(--text-muted)">Mục đích sử dụng</td><td>${U.esc(c.keyUsage)}</td></tr>
+              <tr><td style="color:var(--text-muted)">Căn cứ pháp lý</td><td>${U.esc(c.legalStandard)}</td></tr>
+              <tr><td style="color:var(--text-muted)">Trạng thái</td><td><span class="badge b-ok">✓ Đang hoạt động (Active)</span></td></tr>
+            </tbody>
+          </table>
+          <div style="margin-top:12px">
+            <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Khóa công khai (Public Key SPKI - PEM):</label>
+            <textarea readonly style="width:100%;height:85px;font-family:monospace;font-size:10.5px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--text-muted)">${U.esc(c.publicKeyPem || '')}</textarea>
+          </div>
+        `,
+        footer: [
+          { label: 'Đóng', cls: 'primary', onClick: (m) => m.close() },
+        ],
+      });
+    } catch (e) {
+      UI.loading(false);
+      UI.toast('Lỗi tải chứng thư', e.message, 'danger');
+    }
   };
 
   /* ============================== Trang lỗi / 404 ============================== */

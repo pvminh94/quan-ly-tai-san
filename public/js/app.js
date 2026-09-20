@@ -108,6 +108,7 @@
     { group: 'Báo cáo', items: [
       { key: 'reports', label: 'Mẫu báo cáo & In ấn', icon: '🖨️', href: '#/reports', perm: 'reports' },
       { key: 'library', label: 'Thư viện dữ liệu', icon: '📚', href: '#/reports/library', perm: 'reports' },
+      { key: 'signatures', label: 'Chữ ký số chứng từ', icon: '✍️', href: '#/signatures', perm: 'reports' },
     ]},
     { group: 'Quản trị', items: [
       { key: 'admin', label: 'Tổng quan quản trị', icon: '🛠️', href: '#/admin', perm: 'settings' },
@@ -146,6 +147,11 @@
       const active = hash === href || (href !== '#/dashboard' && hash.startsWith(href + '/')) || (href === '#/assets' && hash.startsWith('#/assets'));
       a.classList.toggle('active', active);
     });
+    document.querySelectorAll('.mobile-bottom-nav .mb-item').forEach((a) => {
+      const href = a.getAttribute('href');
+      const active = hash === href || (href !== '#/dashboard' && hash.startsWith(href));
+      a.classList.toggle('active', active);
+    });
   }
 
   /* ============================== Định tuyến ============================== */
@@ -160,6 +166,8 @@
     R.add('/reports', (route, c) => Pages.reports(c));
     R.add('/reports/library', (route, c) => Pages.dataLibrary(c));
     R.add('/reports/designer/:id', (route, c) => Designer.open(route.params.id, c));
+    R.add('/signatures', (route, c) => Pages.signaturesPage ? Pages.signaturesPage(c) : Pages.notFound(c));
+    R.add('/signatures/verify', (route, c) => Pages.signatureVerifyPage ? Pages.signatureVerifyPage(c) : Pages.notFound(c));
 
     R.add('/assets', (route, c) => Pages.assetsPage(c));
     R.add('/assets/:id/edit', (route, c) => Pages.entityEdit('assets', route.params.id, c));
@@ -347,6 +355,71 @@
     } catch (e) { return false; }
   }
 
+  /* ============================== PWA Progressive Web App ============================== */
+
+  let deferredInstallPrompt = null;
+
+  function initPWA() {
+    // 1. Đăng ký Service Worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+          console.log('[PWA] Service Worker đăng ký thành công:', reg.scope);
+        }).catch((err) => {
+          console.warn('[PWA] Không thể đăng ký Service Worker:', err);
+        });
+      });
+    }
+
+    // 2. Bắt sự kiện cài đặt ứng dụng (beforeinstallprompt)
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      const btn = document.getElementById('btn-pwa-install');
+      if (btn) btn.classList.remove('hidden');
+    });
+
+    const installBtn = document.getElementById('btn-pwa-install');
+    if (installBtn) {
+      installBtn.onclick = async () => {
+        if (!deferredInstallPrompt) {
+          UI.toast('Cài đặt ứng dụng', 'Ứng dụng đã sẵn sàng hoặc hãy dùng tính năng "Thêm vào màn hình chính" trên trình duyệt của bạn.', 'info');
+          return;
+        }
+        deferredInstallPrompt.prompt();
+        const choice = await deferredInstallPrompt.userChoice;
+        if (choice && choice.outcome === 'accepted') {
+          UI.toast('Đang cài đặt', 'AMS Pro đang được thêm vào màn hình chính của bạn', 'success');
+        }
+        deferredInstallPrompt = null;
+        installBtn.classList.add('hidden');
+      };
+    }
+
+    window.addEventListener('appinstalled', () => {
+      UI.toast('Cài đặt thành công', 'AMS Pro đã được cài đặt làm ứng dụng PWA', 'success');
+      const btn = document.getElementById('btn-pwa-install');
+      if (btn) btn.classList.add('hidden');
+    });
+
+    // 3. Theo dõi trạng thái Mạng (Online / Offline)
+    function syncOnlineState() {
+      const banner = document.getElementById('offline-banner');
+      if (!banner) return;
+      if (!navigator.onLine) {
+        banner.classList.remove('hidden');
+        UI.toast('Chế độ ngoại tuyến', 'Mất kết nối mạng. PWA đang chạy từ bộ nhớ đệm.', 'warning');
+      } else {
+        if (!banner.classList.contains('hidden')) {
+          banner.classList.add('hidden');
+          UI.toast('Đã có mạng', 'Thiết bị đã kết nối lại Internet thành công.', 'success');
+        }
+      }
+    }
+    window.addEventListener('online', syncOnlineState);
+    window.addEventListener('offline', syncOnlineState);
+  }
+
   /* ============================== Sự kiện chung ============================== */
 
   document.addEventListener('DOMContentLoaded', async () => {
@@ -407,6 +480,7 @@
 
     setupGlobalSearch();
     setupQuickAdd();
+    initPWA();
 
     const ok = await restoreSession();
     if (!ok) App.showLogin();
