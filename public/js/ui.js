@@ -91,15 +91,19 @@
   UI.confirm = function (opts) {
     const o = Object.assign({ title: 'Xác nhận', message: '', confirmText: 'Đồng ý', cancelText: 'Huỷ', danger: false }, opts || {});
     return new Promise((resolve) => {
+      // LƯU Ý: phải settle promise TRƯỚC khi đóng hộp thoại, vì close() sẽ gọi onClose()
+      // (nếu đóng trước thì promise bị khoá ở giá trị false và thao tác không bao giờ chạy).
+      let settled = false;
+      const settle = (value) => { if (!settled) { settled = true; resolve(value); } };
       const m = UI.modal({
         size: 'sm',
         title: o.title,
         body: `<div style="font-size:13.5px">${o.message}</div>`,
         footer: [
-          { label: o.cancelText, onClick: (m2) => { m2.close(); resolve(false); } },
-          { label: o.confirmText, cls: o.danger ? 'danger' : 'primary', onClick: (m2) => { m2.close(); resolve(true); } },
+          { label: o.cancelText, onClick: (m2) => { settle(false); m2.close(); } },
+          { label: o.confirmText, cls: o.danger ? 'danger' : 'primary', onClick: (m2) => { settle(true); m2.close(); } },
         ],
-        onClose: () => resolve(false),
+        onClose: () => settle(false),
       });
       if (o.focusConfirm) setTimeout(() => { const b = m.el.querySelector('.modal-foot .btn:last-child'); if (b) b.focus(); }, 80);
     });

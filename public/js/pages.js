@@ -521,13 +521,17 @@
     let body = {};
     if (action === 'reject') {
       const reason = await new Promise((resolve) => {
-        const m = UI.modal({
+        // Settle trước khi đóng (xem ghi chú ở UI.confirm)
+        let settled = false;
+        const settle = (value) => { if (!settled) { settled = true; resolve(value); } };
+        UI.modal({
           size: 'sm', title: 'Từ chối phê duyệt',
           body: `<div class="field"><label>Lý do từ chối <span class="req">*</span></label><textarea id="rj" rows="3" placeholder="Nhập lý do từ chối…"></textarea></div>`,
           footer: [
-            { label: 'Huỷ', onClick: (mm) => { mm.close(); resolve(null); } },
-            { label: 'Xác nhận từ chối', cls: 'danger', onClick: (mm) => { const v = mm.body.querySelector('#rj').value.trim(); mm.close(); resolve(v || 'Không đạt yêu cầu'); } },
+            { label: 'Huỷ', onClick: (mm) => { settle(null); mm.close(); } },
+            { label: 'Xác nhận từ chối', cls: 'danger', onClick: (mm) => { const v = mm.body.querySelector('#rj').value.trim(); settle(v || 'Không đạt yêu cầu'); mm.close(); } },
           ],
+          onClose: () => settle(null),
         });
       });
       if (reason === null) return;

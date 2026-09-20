@@ -48,10 +48,33 @@
     }
   }
 
-  async function doLogout() {
-    try { await API.post('/api/auth/logout', {}, { silent: true }); } catch (e) {}
-    location.reload();
-  }
+  App.logout = async function () {
+    // 1) Thu hồi phiên trên máy chủ (xoá cookie HttpOnly)
+    try { await API.post('/api/auth/logout', {}, { silent: true }); } catch (e) { /* vẫn đăng xuất phía client */ }
+    // 2) Xoá toàn bộ trạng thái phía client
+    App.state.user = null;
+    App.state.token = null;
+    App.state.permissions = {};
+    App.state.notifications = [];
+    try { localStorage.removeItem('ams.pref.pendingSort'); } catch (e) {}
+    document.getElementById('user-dropdown').classList.add('hidden');
+    const sr = document.getElementById('search-results');
+    if (sr) sr.classList.add('hidden');
+    const notif = document.getElementById('notif-count');
+    if (notif) { notif.textContent = '0'; notif.classList.add('hidden'); }
+    document.getElementById('nav').innerHTML = '';
+    document.getElementById('content').innerHTML = '';
+    document.querySelectorAll('.modal-overlay').forEach((m) => m.remove());
+    UI.loading(false);
+    if (window.Designer) window.Designer.dirty = false;
+    // 3) Quay về màn hình đăng nhập (không phụ thuộc vào việc tải lại trang)
+    if (location.hash && location.hash !== '#/dashboard') location.hash = '#/dashboard';
+    App.showLogin();
+    document.getElementById('password').value = '';
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    UI.toast('Đã đăng xuất', 'Hẹn gặp lại bạn!', 'success');
+    return true;
+  };
 
   /* ============================== Menu điều hướng ============================== */
 
@@ -347,8 +370,10 @@
 
     document.getElementById('btn-logout').onclick = async (e) => {
       e.preventDefault();
+      const dl = document.getElementById('user-dropdown');
+      if (dl) dl.classList.add('hidden');
       const okd = await UI.confirm({ title: 'Đăng xuất?', message: 'Bạn có chắc muốn đăng xuất khỏi hệ thống?', confirmText: 'Đăng xuất' });
-      if (okd) doLogout();
+      if (okd) await App.logout();
     };
     document.getElementById('toggle-sidebar').onclick = () => {
       App.state.sidebarCollapsed = !App.state.sidebarCollapsed;

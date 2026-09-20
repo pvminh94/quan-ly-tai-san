@@ -86,6 +86,30 @@ function makeFetch(window) {
 
 const errors = [];
 const consoleErrors = [];
+
+/** Gọi API bằng chính jar cookie của phiên kiểm thử */
+function apiRequest(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? null : JSON.stringify(body);
+    const headers = { Accept: 'application/json' };
+    const jar = cookieHeader();
+    if (jar) headers.Cookie = jar;
+    if (payload) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(payload); }
+    const req = http.request({ host: '127.0.0.1', port: PORT, path, method, headers }, (res) => {
+      storeCookies(res.headers['set-cookie']);
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        let json = null;
+        try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch (e) {}
+        resolve({ status: res.statusCode, json });
+      });
+    });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
 const results = [];
 let passed = 0;
 let failed = 0;
@@ -93,6 +117,18 @@ function ok(msg, extra) { passed++; results.push('  \u001b[32m✓\u001b[0m ' + m
 function bad(msg, extra) { failed++; results.push('  \u001b[31m✗\u001b[0m ' + msg + ' \u001b[31m' + (extra || '') + '\u001b[0m'); }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Chờ tới khi điều kiện đúng (thay cho chờ cố định, tránh kiểm thử chập chờn) */
+async function waitFor(fn, timeout, step) {
+  const t0 = Date.now();
+  const limit = timeout || 8000;
+  for (;;) {
+    let v;
+    try { v = fn(); } catch (e) { v = undefined; }
+    if (v) return v;
+    if (Date.now() - t0 > limit) return null;
+    await sleep(step || 200);
+  }
+}
 
 (async () => {
   console.log('\n\u001b[1m  AMS Pro — Kiểm thử giao diện SPA (jsdom) trên ' + BASE + '\u001b[0m\n');
@@ -183,7 +219,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   for (const [hash, expect] of routes) {
     const e0 = errors.length;
     window.location.hash = hash;
-    await sleep(hash.includes('designer') ? 1500 : 700);
+    if (hash.includes('designer')) await waitFor(() => doc.querySelector('.designer'), 12000);
+    await waitFor(() => {
+      const c = doc.getElementById('content');
+      return c && c.textContent.trim().length > 0 && !c.querySelector('.page-loading');
+    }, hash.includes('designer') ? 12000 : 6000);
+    await sleep(250);
     const view = doc.getElementById('content');
     const html = view ? view.innerHTML : '';
     const newErr = errors.slice(e0).concat(jsdomErrors.splice(0));
@@ -198,13 +239,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const searchInput = doc.getElementById('global-search');
   searchInput.value = 'may';
   searchInput.dispatchEvent(new window.Event('input', { bubbles: true }));
-  await sleep(900);
+  await waitFor(() => { const x = doc.getElementById('search-results'); return x && x.querySelectorAll('.sr-item').length > 0; }, 8000);
   const sr = doc.getElementById('search-results');
   if (sr && !sr.classList.contains('hidden') && sr.querySelectorAll('.sr-item').length) ok('Tìm kiếm nhanh toàn hệ thống', sr.querySelectorAll('.sr-item').length + ' kết quả');
   else bad('Tìm kiếm nhanh không trả kết quả');
 
   window.location.hash = '#/dashboard';
-  await sleep(800);
+  await waitFor(() => doc.querySelectorAll('#content svg').length >= 4, 10000);
   const charts = doc.querySelectorAll('#content svg');
   if (charts.length >= 4) ok('Biểu đồ SVG nội bộ render', charts.length + ' biểu đồ');
   else bad('Biểu đồ thiếu', charts.length + ' biểu đồ');
@@ -229,8 +270,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ---- trình thiết kế báo cáo ----
   window.location.hash = '#/reports/designer/1';
-  await sleep(2000);
-  const dz = doc.querySelector('.designer');
+  const dz = await waitFor(() => doc.querySelector('.designer'), 12000);
   if (dz) {
     ok('Trình thiết kế báo cáo mở được');
     const tools = doc.querySelectorAll('[data-tool]').length;
@@ -249,6 +289,97 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const bandsDetected = doc.querySelectorAll('.dz-band[data-band]').length;
     ok('Số dải thiết kế hiển thị', bandsDetected + ' dải');
   } else bad('Không mở được trình thiết kế báo cáo');
+
+  // ---- hộp thoại xác nhận (lỗi từng làm mọi thao tác xác nhận bị bỏ qua) ----
+  try {
+    const pTrue = window.UI.confirm({ title: 'Kiểm thử', message: 'Chọn Đồng ý', confirmText: 'Đồng ý' });
+    await sleep(200);
+    const m1 = doc.querySelectorAll('.modal');
+    m1[m1.length - 1].querySelector('.modal-foot .btn:last-child').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    const vTrue = await pTrue;
+    if (vTrue === true) ok('UI.confirm trả về true khi bấm xác nhận');
+    else bad('UI.confirm trả về sai giá trị khi xác nhận', String(vTrue));
+
+    const pFalse = window.UI.confirm({ title: 'Kiểm thử', message: 'Chọn Huỷ' });
+    await sleep(200);
+    const m2 = doc.querySelectorAll('.modal');
+    m2[m2.length - 1].querySelector('.modal-foot .btn:first-child').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    const vFalse = await pFalse;
+    if (vFalse === false) ok('UI.confirm trả về false khi bấm huỷ');
+    else bad('UI.confirm trả về sai giá trị khi huỷ', String(vFalse));
+  } catch (e) { bad('Hộp thoại xác nhận lỗi', e.message); }
+
+  // ---- thao tác xoá thật qua giao diện (phụ thuộc UI.confirm) ----
+  try {
+    const created = await apiRequest('POST', '/api/entities/categories', { name: 'Danh mục kiểm thử giao diện' });
+    const catId = created.json && created.json.data && created.json.data.id;
+    if (!catId) bad('Không tạo được bản ghi kiểm thử qua API');
+    else {
+      window.location.hash = '#/categories';
+      const searchBox = await waitFor(() => doc.querySelector('#content .dt-search'), 10000);
+      if (!searchBox) throw new Error('Bảng danh mục không render kịp');
+      searchBox.value = 'kiểm thử giao diện';
+      searchBox.dispatchEvent(new window.Event('input', { bubbles: true }));
+      await waitFor(() => /Danh mục kiểm thử giao diện/.test(doc.getElementById('content').textContent), 8000);
+      // Chỉ thao tác trên đúng dòng kiểm thử (tìm theo tên bản ghi trong bảng)
+      const testRow = await waitFor(() => {
+        const rows = Array.from(doc.querySelectorAll('#content tbody tr'));
+        return rows.find((tr) => /Danh mục kiểm thử giao diện/.test(tr.textContent));
+      }, 8000);
+      const delBtn = testRow && Array.from(testRow.querySelectorAll('td.actions button')).find((b) => (b.getAttribute('title') || '') === 'Xoá');
+      if (!testRow) bad('Không thấy dòng kiểm thử trong bảng danh mục');
+      if (!delBtn) bad('Không thấy nút xoá trên danh sách');
+      else {
+        delBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        await sleep(400);
+        const modals = doc.querySelectorAll('.modal');
+        const confirmModal = modals[modals.length - 1];
+        if (!confirmModal || !/Xoá/.test(confirmModal.textContent)) bad('Không hiện hộp thoại xác nhận xoá');
+        else {
+          confirmModal.querySelector('.modal-foot .btn:last-child').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+          await sleep(900);
+          const after = await apiRequest('GET', '/api/entities/categories/' + catId);
+          const gone = after.status === 404 || (after.json && after.json.data && (after.json.data.isDeleted || after.json.data.deletedAt));
+          if (gone) ok('Xoá bản ghi qua giao diện (xác nhận có hiệu lực)');
+          else bad('Xoá qua giao diện không thực hiện', 'status=' + after.status);
+          await apiRequest('DELETE', '/api/entities/categories/' + catId + '?hard=1');
+        }
+      }
+    }
+  } catch (e) { bad('Luồng xoá qua giao diện lỗi', e.message); }
+
+  // ---- đăng xuất (chạy cuối vì sẽ kết thúc phiên) ----
+  try {
+    doc.getElementById('user-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(150);
+    doc.getElementById('btn-logout').dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await sleep(400);
+    const modals = doc.querySelectorAll('.modal');
+    const outModal = modals[modals.length - 1];
+    if (!outModal) bad('Không hiện hộp thoại xác nhận đăng xuất');
+    else {
+      outModal.querySelector('.modal-foot .btn:last-child').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await sleep(1200);
+      const cookieGone = !/ams_token=/.test(cookieHeader());
+      const backToLogin = !doc.getElementById('login-screen').classList.contains('hidden') && doc.getElementById('app').classList.contains('hidden');
+      const me = await apiRequest('GET', '/api/auth/me');
+      if (cookieGone) ok('Đăng xuất xoá cookie phiên');
+      else bad('Cookie phiên chưa bị xoá khi đăng xuất');
+      if (backToLogin) ok('Đăng xuất đưa về màn hình đăng nhập');
+      else bad('Không quay về màn hình đăng nhập sau khi đăng xuất');
+      if (me.status === 401) ok('Phiên đã bị thu hồi trên máy chủ');
+      else bad('Phiên vẫn còn hiệu lực sau đăng xuất', 'status=' + me.status);
+
+      // Đăng nhập lại ngay sau khi đăng xuất
+      doc.getElementById('username').value = 'admin';
+      doc.getElementById('password').value = 'Admin@123';
+      doc.getElementById('login-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+      for (let i = 0; i < 40 && !(window.App && window.App.state.user); i++) await sleep(150);
+      if (window.App.state.user) ok('Đăng nhập lại được ngay sau khi đăng xuất', window.App.state.user.fullName);
+      else bad('Không đăng nhập lại được sau khi đăng xuất', (doc.getElementById('login-error') || {}).textContent || '');
+      if (doc.querySelectorAll('.nav-item').length > 20) ok('Menu được dựng lại đầy đủ sau khi đăng nhập lại', doc.querySelectorAll('.nav-item').length + ' mục');
+    }
+  } catch (e) { bad('Luồng đăng xuất lỗi', e.message); }
 
   // ---- tổng kết ----
   console.log(results.join('\n'));

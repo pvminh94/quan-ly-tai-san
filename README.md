@@ -104,8 +104,10 @@ node server/tools/smoke-test.js --keep          # giữ lại dữ liệu kiểm
 
 # Kiểm thử giao diện (cần jsdom, chỉ dùng khi kiểm thử):
 npm install --no-save jsdom
-node server/tools/ui-test.js 3000               # duyệt 34 đường dẫn, 50 phép kiểm tra, bắt lỗi JS
+node server/tools/ui-test.js 3000               # duyệt 34 đường dẫn, 58 phép kiểm tra, bắt lỗi JS
 ```
+
+`ui-test.js` gồm **58 phép kiểm tra**: nạp 8 mô-đun SPA, đăng nhập, dựng menu theo phân quyền, duyệt toàn bộ 34 đường dẫn (không phát sinh lỗi JavaScript), tìm kiếm nhanh, biểu đồ SVG, biểu mẫu sinh theo metadata, Trình thiết kế báo cáo (dải in, phần tử, ghost preview), **hộp thoại xác nhận trả về đúng giá trị**, **xoá bản ghi thật qua giao diện**, và **toàn bộ luồng đăng xuất → đăng nhập lại** (cookie bị xoá, phiên thu hồi, quay về màn hình đăng nhập). Cả hai bộ kiểm thử đều tự dọn dẹp dữ liệu, chạy lại nhiều lần không để lại rác.
 
 `smoke-test.js` gồm **152 phép kiểm tra**: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất, mọi mẫu hệ thống phải ra dữ liệu), 9 chứng từ in, và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
 

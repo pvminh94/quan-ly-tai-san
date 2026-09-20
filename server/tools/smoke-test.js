@@ -235,7 +235,7 @@ async function testCrud() {
   check('Nhập JSON nhiều dòng', imp.status === 200 && imp.json.data.inserted === 2, JSON.stringify(imp.json.data));
   const impList = await GET('/api/entities/categories?q=' + encodeURIComponent('Nhập từ JSON'));
   check('Bản ghi nhập đã có trong CSDL', (impList.json.meta.total || 0) >= 2, (impList.json.meta.total || 0) + ' bản ghi');
-  for (const r of impList.json.data || []) if ((r.code || '').startsWith('TEST-IMP')) created.categories.push(r.id);
+  for (const r of impList.json.data || []) created.categories.push(r.id);   // dọn hết bản ghi vừa nhập
 
   const del = await DEL('/api/entities/categories/' + catId);
   check('Xoá mềm bản ghi', del.status === 200, 'status=' + del.status);
