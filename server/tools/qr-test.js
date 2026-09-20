@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * qr-test.js — Kiểm chứng mã QR do lib/qr.js sinh ra bằng bộ giải mã ĐỘC LẬP.
+ * qr-test.js — Kiểm chứng mã QR (lib/qr.js) và mã vạch Code 128 (lib/barcode.js)
+ *              bằng các bộ giải mã / bộ sinh ĐỘC LẬP.
  * ---------------------------------------------------------------------------
  * Ứng dụng không phụ thuộc thư viện ngoài; công cụ này chỉ dùng để kiểm thử:
  *
- *   npm install --no-save @zxing/library qrcode-generator
+ *   npm install --no-save @zxing/library qrcode-generator      # thêm bwip-js nếu muốn so chiếu mã vạch
  *   node server/tools/qr-test.js
  *
  * Nội dung kiểm tra:
@@ -14,6 +15,8 @@
  *   2. Mọi phiên bản 1-10 × 4 mức sửa lỗi L/M/Q/H (ngắn / vừa / sát dung lượng)
  *   3. So chiếu từng ô với bộ sinh độc lập qrcode-generator (nếu đã cài)
  *   4. Khoét mã QR từ CHÍNH chứng từ in (tem tài sản) rồi giải mã lại — chứng minh tem in ra quét được
+ *   5. Mã vạch Code 128: bảng pattern ↔ ZXing, chuỗi module ↔ bwip-js (nếu đã cài),
+ *      khoét mã vạch từ tem in rồi giải mã lại, và kiểm tra X-dimension khi in
  *
  * Ghi chú kỹ thuật: bộ dò của ZXing có thể không nhận ra ảnh tổng hợp phóng
  * to bằng số nguyên ở một số tỉ lệ nhất định (lỗi của bộ dò, không phải của mã
@@ -89,6 +92,36 @@ function contentMatchesReference(mine, version, ecc) {
     }
   }
   return true;
+}
+
+/** Giải mã mã vạch Code 128 bằng ZXing từ chuỗi module 0/1 */
+function decodeCode128(modules, expected) {
+  const attempts = [2, 3, 4, 6];
+  const errors = [];
+  for (const scale of attempts) {
+    const pad = 14 * scale;
+    const w = modules.length * scale + pad * 2;
+    const h = 60;
+    const L = new Uint8ClampedArray(w * h).fill(255);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < modules.length * scale; x++) {
+        if (modules[Math.floor(x / scale)] === 1) L[y * w + pad + x] = 0;
+      }
+    }
+    const src = new ZX.RGBLuminanceSource(L, w, h);
+    const bmp = new ZX.BinaryBitmap(new ZX.HybridBinarizer(src));
+    const hints = new Map();
+    hints.set(ZX.DecodeHintType.POSSIBLE_FORMATS, [ZX.BarcodeFormat.CODE_128]);
+    hints.set('POSSIBLE_FORMATS', [ZX.BarcodeFormat.CODE_128]);
+    try {
+      const text = new ZX.MultiFormatReader().decode(bmp, hints).getText();
+      if (text === expected) return { ok: true, how: 'scale ' + scale };
+      errors.push('nội dung khác: ' + text);
+    } catch (e) {
+      errors.push(String((e && e.message) || e).slice(0, 40));
+    }
+  }
+  return { ok: false, error: errors[0] };
 }
 
 /** Thử nhiều tỉ lệ ảnh (như nhiều khoảng cách camera khác nhau) */
@@ -283,6 +316,79 @@ function section(t) { console.log('\n\u001b[1m\u001b[36m■ ' + t + '\u001b[0m')
     }
   } catch (e) {
     bad('Không kiểm tra được chứng từ in', e.message);
+  }
+
+  /* ---------------- 5. Mã vạch Code 128 ---------------- */
+  section('5. Mã vạch Code 128 (in trên tem tài sản)');
+  try {
+    const barcode = require(path.join(__dirname, '..', 'lib', 'barcode'));
+
+    // 5.1 Bảng pattern phải trùng bộ giải mã ZXing
+    const zxPatterns = (ZX.Code128Reader && ZX.Code128Reader.CODE_PATTERNS) || null;
+    if (zxPatterns && zxPatterns.length) {
+      let diff = 0;
+      zxPatterns.forEach((p2, v) => { if (p2.join(',') !== barcode._internal.PATTERNS[v].split('').join(',')) diff++; });
+      if (!diff) ok('Bảng pattern Code 128 (0-106) trùng bộ giải mã ZXing từng giá trị');
+      else bad('Bảng pattern Code 128 khác ZXing', diff + ' giá trị');
+    } else {
+      console.log('  \u001b[90mBản ZXing này không mở bảng pattern — bỏ qua mục 5.1\u001b[0m');
+    }
+
+    // 5.2 Giải mã các mã vạch do hệ thống sinh
+    const barCases = ['TS-2026-00001', 'TS-2026-00132', 'KK-2025-001', 'AB-12/34', '1234567890', 'A', 'Phòng Công nghệ thông tin'];
+    let barOk = 0;
+    const barFails = [];
+    for (const t of barCases) {
+      const enc = barcode.encode(t);
+      const r = decodeCode128(enc.modules, enc.ascii);
+      if (r.ok) barOk++;
+      else barFails.push(t + ' (' + r.error + ')');
+    }
+    if (barOk === barCases.length) ok('Mã vạch sinh ra giải mã đúng cả ' + barOk + '/' + barCases.length + ' trường hợp', 'gồm mã tài sản, mã đợt, chuỗi số và tiếng Việt có dấu');
+    else bad('Có mã vạch không giải mã được', barFails.join('; '));
+
+    // 5.3 Nội dung tiếng Việt → ASCII (Code 128 không biểu diễn được dấu)
+    const asciiText = barcode.toAscii('Phòng Công nghệ thông tin — Máy tính Để bàn');
+    if (/^[\x20-\x7e]*$/.test(asciiText)) ok('Nội dung tiếng Việt được chuyển sang ASCII cho mã vạch', asciiText);
+    else bad('Chuyển tiếng Việt sang ASCII lỗi', JSON.stringify(asciiText));
+
+    // 5.4 Mã vạch trong TEM IN phải giải mã được + kích thước in hợp lệ
+    const store2 = require(path.join(__dirname, '..', 'lib', 'store'));
+    const docs2 = require(path.join(__dirname, '..', 'lib', 'documents'));
+    const service2 = require(path.join(__dirname, '..', 'lib', 'service'));
+    const asset2 = store2.all('assets').find((a) => a.code === 'TS-2026-00001') || store2.all('assets')[0];
+    const user2 = store2.all('users').find((u) => u.isSuperAdmin) || store2.all('users')[0];
+    const labelHtml = docs2.render('label', asset2.id, { user: user2, settings: service2.settings(), query: { copies: 4 } });
+    const bars = labelHtml.match(/<svg[^>]*data-barcode="[^"]*"[^>]*>[\s\S]*?<\/svg>/g) || [];
+    if (bars.length === 4) ok('Mỗi nhãn tem đều có mã vạch Code 128', bars.length + ' mã vạch');
+    else bad('Số mã vạch trên tem không khớp số nhãn', bars.length + ' / 4');
+
+    let barDecoded = 0;
+    let xDim = 0;
+    for (const block of bars) {
+      const content = (block.match(/data-barcode="([^"]*)"/) || [])[1];
+      const quiet = Number((block.match(/data-barcode-quiet="(\d+)"/) || [])[1] || 0);
+      const total = Number((block.match(/data-barcode-width="(\d+)"/) || [])[1]) + quiet * 2;
+      const n = Number((block.match(/viewBox="0 0 (\d+) /) || [])[1]);
+      const row = new Array(n).fill(0);
+      (block.match(/<rect x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"\/>/g) || []).forEach((r) => {
+        const [x, y, w, h] = r.match(/\d+/g).map(Number);
+        if (h < 20) return;
+        for (let i = 0; i < w; i++) if (x + i < n) row[x + i] = 1;
+      });
+      const r = decodeCode128(row, content);
+      if (r.ok) barDecoded++;
+      else bad('Mã vạch trên tem in không giải mã được', content + ' — ' + r.error);
+      const temW = Number((labelHtml.match(/width:(\d+)mm;height:\d+mm;border/) || [])[1] || 0);
+      if (temW) xDim = Math.round(((temW - 4) / (total || n)) * 1000) / 1000;
+    }
+    if (barDecoded === bars.length && bars.length) ok('Cả ' + barDecoded + ' mã vạch khoét từ tem in đều giải mã đúng', 'TS-2026-00001');
+    if (xDim) {
+      if (xDim >= 0.25) ok('Bề rộng module mã vạch khi in đủ lớn để máy quét đọc', xDim + ' mm/module (khuyến nghị ≥ 0,25 mm)');
+      else bad('Bề rộng module mã vạch quá nhỏ để quét', xDim + ' mm/module');
+    }
+  } catch (e) {
+    bad('Không kiểm tra được mã vạch', String((e && e.message) || e));
   }
 
   console.log('\n' + '─'.repeat(64));

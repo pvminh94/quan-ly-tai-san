@@ -343,36 +343,45 @@ function assetLabelDoc(id, ctx, opts) {
   const labelW = perRow === 2 ? 92 : 186;
   const labelH = copies >= 6 ? 63 : 42;
 
-  const qr = reportEngine.qrSVG('ams://asset/' + asset.code, 1, { ecc: 'Q', quiet: 2 });
+  const qr = reportEngine.qrSVG('ams://asset/' + asset.code, 1, { ecc: 'Q', quiet: 4 });
   const bar = reportEngine.code128SVG(String(asset.code), 1, 1);
   const pickQty = Number(o.pickQty) || 1;
   const qtyLabel = Number(asset.quantity) > 1 ? `${Number(asset.quantity).toLocaleString('vi-VN')} ${asset.unit || 'cái'}` : '1 cái';
 
+  // Bố cục: thông tin + QR bên phải, mã vạch Code128 chạy hết chiều ngang tem (đủ rộng để quét)
+  const compact = labelH <= 46;
+  const qrMm = compact ? 22 : 28;
+  const barMm = compact ? 8 : 10;
+  const line = (label, value, size) =>
+    `<div style="font-size:${size || 8}pt;color:#475569;line-height:1.35">${label} ${esc(value || '—')}</div>`;
   const one = `
-  <div class="tem" style="width:${labelW}mm;height:${labelH}mm;border:1.5px solid #0f172a;border-radius:6px;padding:7px;font-family:Inter,Arial;box-sizing:border-box;position:relative;overflow:hidden">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #94a3b8;padding-bottom:3px;margin-bottom:4px">
-      <div style="font-weight:700;font-size:10pt;text-transform:uppercase;line-height:1.15">${esc(ctx.settings.company.shortName || ctx.settings.company.name)}</div>
-      <div style="font-size:7.5pt;color:#64748b;white-space:nowrap">NHÃN TÀI SẢN</div>
+  <div class="tem" style="width:${labelW}mm;height:${labelH}mm;border:1.5px solid #0f172a;border-radius:6px;padding:6px 7px;padding-bottom:13px;font-family:Inter,Arial;box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #94a3b8;padding-bottom:2px;margin-bottom:3px">
+      <div style="font-weight:700;font-size:${compact ? 8.5 : 10}pt;text-transform:uppercase;line-height:1.15">${esc(ctx.settings.company.shortName || ctx.settings.company.name)}</div>
+      <div style="font-size:7pt;color:#64748b;white-space:nowrap">NHÃN TÀI SẢN</div>
     </div>
-    <div style="display:flex;gap:6px">
+
+    <div style="display:flex;gap:5px;flex:1;min-height:0">
       <div style="flex:1;min-width:0">
-        <div style="font-size:7.5pt;color:#475569;text-transform:uppercase;letter-spacing:.4px">Mã tài sản</div>
-        <div style="font-weight:800;font-size:14pt;letter-spacing:.5px;line-height:1.1;font-family:monospace">${esc(asset.code)}</div>
-        <div style="font-size:10pt;font-weight:600;margin:3px 0;line-height:1.25;max-height:22mm;overflow:hidden">${esc(asset.name)}</div>
-        <div style="font-size:8pt;color:#475569">Danh mục: ${esc(asset.categoryName || '—')}</div>
-        <div style="font-size:8pt;color:#475569">Bộ phận: ${esc(asset.departmentName || '—')}</div>
-        <div style="font-size:8pt;color:#475569">Người sử dụng: ${esc(asset.assigneeName || '—')}</div>
-        <div style="font-size:8pt;color:#475569">Số lượng: ${esc(qtyLabel)}</div>
-        <div style="font-size:7.5pt;color:#64748b;margin-top:2px">Ngày mua: ${date(asset.purchaseDate)} • BH đến ${date(asset.warrantyEnd)}</div>
+        <div style="font-size:7pt;color:#475569;text-transform:uppercase;letter-spacing:.4px">Mã tài sản</div>
+        <div style="font-weight:800;font-size:${compact ? 12 : 14}pt;letter-spacing:.5px;line-height:1.1;font-family:monospace">${esc(asset.code)}</div>
+        <div style="font-size:${compact ? 9 : 10}pt;font-weight:600;margin:2px 0;line-height:1.2;max-height:${compact ? 9 : 12}mm;overflow:hidden">${esc(asset.name)}</div>
+        ${line('Danh mục:', asset.categoryName)}
+        ${line('Bộ phận:', asset.departmentName)}
+        ${compact ? '' : line('Người sử dụng:', asset.assigneeName)}
+        ${line('Số lượng:', qtyLabel)}
+        ${compact ? '' : `<div style="font-size:7pt;color:#64748b;margin-top:1px">Ngày mua: ${date(asset.purchaseDate)} • BH đến ${date(asset.warrantyEnd)}</div>`}
       </div>
-      <div style="width:${perRow === 2 ? 30 : 40}mm;flex:none;text-align:center">
-        <div style="width:${perRow === 2 ? 26 : 34}mm;height:${perRow === 2 ? 26 : 34}mm;margin:0 auto">${qr}</div>
-        <div style="height:9mm;margin-top:3px;overflow:hidden">${bar}</div>
-        <div style="font-family:monospace;font-size:8pt;letter-spacing:1px">${esc(asset.code)}</div>
+      <div style="width:${qrMm}mm;flex:none;text-align:center">
+        <div style="width:${qrMm}mm;height:${qrMm}mm;margin:0 auto">${qr}</div>
+        <div style="font-family:monospace;font-size:${compact ? 7 : 8}pt;letter-spacing:.5px;margin-top:1px">${esc(asset.code)}</div>
       </div>
     </div>
-    <div style="position:absolute;bottom:3px;left:7px;right:7px;display:flex;gap:6px;font-size:7pt;color:#94a3b8">
-      <span>SL kiểm kê: ......</span><span>Ngày: __/__/____</span><span>Người KK: ..................</span>
+
+    <div style="height:${barMm}mm;flex:none;margin:2px 0 1px">${bar}</div>
+
+    <div style="position:absolute;bottom:2px;left:7px;right:7px;display:flex;gap:5px;font-size:6.5pt;color:#94a3b8">
+      <span>SL kiểm kê: ......</span><span>Ngày: __/__/____</span><span>Người KK: ..........</span>
     </div>
   </div>`;
 

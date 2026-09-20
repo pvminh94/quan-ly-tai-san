@@ -17,6 +17,7 @@ const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
 const qrLib = require(path.join(__dirname, '..', 'lib', 'qr'));
+const barcodeLib = require(path.join(__dirname, '..', 'lib', 'barcode'));
 
 const argv = process.argv.slice(2);
 const grab = (flag, def) => {
@@ -634,13 +635,49 @@ async function testScan() {
   }
   check('Ma trận QR trong nhãn tem khớp từng ô với bộ sinh (mã quét được)', matrixMatch);
 
+  // -- 8.4b Mã vạch Code 128 trên tem: khớp bộ sinh và đủ rộng để quét --
+  const barTag = labelHtml.match(/<svg[^>]*data-barcode="([^"]*)"[^>]*>([\s\S]*?)<\/svg>/);
+  const barCount = (labelHtml.match(/data-barcode="/g) || []).length;
+  check('Nhãn tem có mã vạch Code 128 (mỗi nhãn 1 mã)', barCount === 8 && !!barTag, barCount + ' mã vạch (mặc định 8 nhãn)');
+  let barMatch = false;
+  let bcInfo = '';
+  if (barTag) {
+    const bcContent = barTag[1];
+    const bcQuiet = Number((barTag[0].match(/data-barcode-quiet="(\d+)"/) || [])[1] || 0);
+    const bcWidth = Number((barTag[0].match(/data-barcode-width="(\d+)"/) || [])[1] || 0);
+    const bn = Number((barTag[0].match(/viewBox="0 0 (\d+) /) || [])[1]);
+    const brow = new Array(bn).fill(0);
+    const bre = /<rect x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"\/>/g;
+    let bm2;
+    while ((bm2 = bre.exec(barTag[2]))) {
+      const [bx, by, bw, bh] = bm2.slice(1, 5).map(Number);
+      if (by !== 0 || bh < 20) continue;
+      for (let i = 0; i < bw; i++) if (bx + i < bn) brow[bx + i] = 1;
+    }
+    const expect = barcodeLib.encode(bcContent);
+    barMatch = bcContent === anyAsset.code
+      && bn === expect.totalWidth
+      && bcWidth === expect.width
+      && bcQuiet === expect.quiet
+      && expect.withQuiet.every((v, i) => v === brow[i]);
+    bcInfo = bcWidth + ' module + lề ' + bcQuiet + ' • ' + brow.filter((v) => v).length + ' module vạch';
+  }
+  check('Mã vạch trong tem khớp từng module với bộ sinh Code 128 (quét được)', barMatch, barTag ? barTag[1] + ' • ' + bcInfo : 'không thấy mã vạch');
+
+  // X-dimension: bề rộng module khi in (mm) phải >= 0,25 mm
+  const temWidthMm = Number((labelHtml.match(/width:(\d+)mm;height:\d+mm;border/) || [])[1] || 0);
+  const barTotal = Number((labelHtml.match(/data-barcode-width="(\d+)"/) || [])[1] || 0) + 20;
+  const xDim = temWidthMm && barTotal ? Math.round(((temWidthMm - 4) / barTotal) * 1000) / 1000 : 0;
+  check('Bề rộng module mã vạch in ra đủ lớn để máy quét đọc', xDim >= 0.25, xDim + ' mm/module trên tem ' + temWidthMm + 'mm');
+
   // -- 8.5 Mẫu báo cáo "Tem tài sản" có QR + mã vạch --
   const labelTpl = (await GET('/api/entities/report_templates?limit=50')).json.data.find((t) => t.code === 'MBC-009');
   check('Mẫu tem tài sản (MBC-009) có phần tử QR và mã vạch', !!labelTpl && JSON.stringify(labelTpl.design).includes('"qrcode"') && JSON.stringify(labelTpl.design).includes('"barcode"'));
   if (labelTpl) {
     const labelRender = await POST('/api/reports/render', { templateId: labelTpl.id, format: 'html' }, { raw: true });
     const lrh = labelRender.body.toString();
-    check('Kết xuất mẫu tem có mã QR thật', labelRender.status === 200 && /data-qr="ams:\/\/asset/.test(lrh), 'mã QR: ' + ((lrh.match(/data-qr="/g) || []).length) + ' • mã vạch: ' + ((lrh.match(/viewBox="0 0 \d+ 100"/g) || []).length));
+    check('Kết xuất mẫu tem có mã QR thật', labelRender.status === 200 && /data-qr="ams:\/\/asset/.test(lrh), 'mã QR: ' + ((lrh.match(/data-qr="/g) || []).length) + ' • mã vạch: ' + ((lrh.match(/data-barcode="/g) || []).length));
+    check('Kết xuất mẫu tem có mã vạch Code 128 thật', /data-barcode="TS-2026-/.test(lrh) && /data-barcode-type="code128"/.test(lrh));
   }
 
 }
@@ -769,9 +806,15 @@ async function cleanup() {
     await testDocuments();
     await testScan();
     await testAdmin();
-    await cleanup();
   } catch (e) {
     bad('Lỗi không mong đợi', e.stack);
+  } finally {
+    // Luôn dọn dẹp dữ liệu kiểm thử, kể cả khi có phép kiểm tra lỗi giữa chừng
+    try {
+      await cleanup();
+    } catch (e2) {
+      bad('Dọn dẹp dữ liệu kiểm thử thất bại', String((e2 && e2.message) || e2));
+    }
   }
 
   const secs = ((Date.now() - t0) / 1000).toFixed(1);

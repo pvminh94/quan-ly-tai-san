@@ -31,7 +31,7 @@
 | **Khấu hao** | 6 phương pháp (đường thẳng, số dư giảm dần, số dư giảm dần có điều chỉnh, theo sản lượng, theo tỷ lệ, không khấu hao), chạy khấu hao theo kỳ, xem trước, ghi sổ, chứng từ bảng tính khấu hao |
 | **Trình thiết kế báo cáo** | Kéo–thả, 8 dải in (band), 13 loại phần tử, biểu thức & hàm tổng hợp, nhóm – sắp xếp – lọc – tham số, khổ giấy A4/A5/A3/Letter/Legal/hoá đơn, lưới & bám lưới, ghost preview dữ liệu mẫu, undo/redo, xuất HTML/CSV/Excel/Word, xem trước + in |
 | **Chứng từ in** | 9 mẫu chứng từ khổ A4 chuẩn văn bản hành chính Việt Nam: biên bản bàn giao, biên bản điều chuyển, phiếu bảo trì, biên bản thanh lý, biên bản kiểm kê, phiếu bảo hành, nhãn/tem tài sản, bảng tính khấu hao, bảng kê tài sản theo hợp đồng |
-| **Quét mã QR / mã vạch** | Bộ sinh **QR thật theo ISO/IEC 18004** (phiên bản 1–10, 4 mức sửa lỗi, không dùng thư viện ngoài) + Code128; tem tài sản in ra có mã QR `ams://asset/<mã>`; trang **Quét mã** dùng camera điện thoại để kiểm kê nhanh: tự nhận diện, tự ghi nhận, tiến độ, lịch sử, hoàn tác |
+| **Quét mã QR / mã vạch** | Bộ sinh **QR thật theo ISO/IEC 18004** (phiên bản 1–10, 4 mức sửa lỗi) và **Code 128 thật theo ISO/IEC 15417** (bộ ký tự A/B/C tự động, checksum mod 103, lề trắng 10 module) — không dùng thư viện ngoài; tem tài sản in ra có mã QR `ams://asset/<mã>` + mã vạch Code 128 chạy hết chiều ngang tem; trang **Quét mã** dùng camera điện thoại để kiểm kê nhanh: tự nhận diện, tự ghi nhận, tiến độ, lịch sử, hoàn tác |
 | **Quản trị** | Ma trận phân quyền 23 phân hệ × 6 hành động, phạm vi dữ liệu (toàn hệ thống / phòng ban / cá nhân), nhật ký thao tác, quản lý phiên đăng nhập, sao lưu – phục hồi, xuất CSDL JSON & script SQL (MySQL/PostgreSQL), thùng rác & khôi phục |
 | **Giao diện** | SPA thuần JavaScript, tiếng Việt 100%, sáng/tối, thu gọn menu, Ctrl+K tìm kiếm nhanh, thông báo, biểu đồ SVG tự vẽ, biểu mẫu sinh tự động từ metadata, in ấn chuyên nghiệp |
 
@@ -59,7 +59,7 @@ quan-ly-tai-san/
 │  │  └─ zip.js                # đóng gói ZIP để tạo .docx/.xlsx không cần thư viện
 │  └─ tools/
 │     ├─ reset-seed.js         # khởi tạo lại dữ liệu mẫu (có sao lưu trước)
-│     ├─ smoke-test.js         # kiểm thử API đầu-cuối (181 phép kiểm tra)
+│     ├─ smoke-test.js         # kiểm thử API đầu-cuối (185 phép kiểm tra)
 │     ├─ ui-test.js            # kiểm thử giao diện bằng DOM thật (jsdom, tuỳ chọn)
 │     └─ qr-test.js            # kiểm chứng mã QR bằng bộ giải mã độc lập (tuỳ chọn)
 └─ public/                     # SPA
@@ -102,7 +102,7 @@ Dữ liệu nằm ở `data/db.json`. Xoá thư mục `data/` rồi chạy lại
 ## 4. Kiểm thử
 
 ```bash
-npm test                       # 181 phép kiểm tra API đầu-cuối (tự khởi động máy chủ ở cổng 3111)
+npm test                       # 185 phép kiểm tra API đầu-cuối (tự khởi động máy chủ ở cổng 3111)
 node server/tools/smoke-test.js --port 3000     # chạy trên máy chủ đang mở
 node server/tools/smoke-test.js --keep          # giữ lại dữ liệu kiểm thử để xem
 
@@ -112,14 +112,24 @@ node server/tools/ui-test.js 3000               # duyệt 35 đường dẫn, 73
 
 # Kiểm chứng mã QR bằng bộ giải mã độc lập (cần ZXing, chỉ dùng khi kiểm thử):
 npm install --no-save @zxing/library qrcode-generator
-node server/tools/qr-test.js                    # 141 phép kiểm chứng (giải mã + đối chiếu từng ô)
+node server/tools/qr-test.js                    # 147 phép kiểm chứng QR + mã vạch Code 128
 ```
 
 `ui-test.js` gồm **73 phép kiểm tra**: nạp 8 mô-đun SPA, đăng nhập, dựng menu theo phân quyền, duyệt toàn bộ 34 đường dẫn (không phát sinh lỗi JavaScript), tìm kiếm nhanh, biểu đồ SVG, biểu mẫu sinh theo metadata, Trình thiết kế báo cáo (dải in, phần tử, ghost preview), **hộp thoại xác nhận trả về đúng giá trị**, **xoá bản ghi thật qua giao diện**, **trang quét mã** (khung camera, quét thử, tra cứu mã, đổi kết quả, lịch sử, tiến độ, hoàn tác, hộp thoại in tem) và **toàn bộ luồng đăng xuất → đăng nhập lại** (cookie bị xoá, phiên thu hồi, quay về màn hình đăng nhập). Cả hai bộ kiểm thử đều tự dọn dẹp dữ liệu: dòng kiểm kê, tài sản, bản ghi nghiệp vụ đều được trả về đúng trạng thái trước khi chạy (chỉ ghi thêm **nhật ký hệ thống** và phiên đăng nhập — đúng như khi dùng thật), nên chạy lại nhiều lần cũng không làm lệch dữ liệu mẫu.
 
-`qr-test.js` gồm **141 phép kiểm chứng**: giải mã QR do hệ thống sinh bằng bộ giải mã độc lập **ZXing** (nội dung thật của hệ thống, 10 phiên bản × 4 mức sửa lỗi × 3 độ dài, kể cả trường hợp sát dung lượng), **đối chiếu từng ô** với bộ sinh tham chiếu `qrcode-generator` (0 ô khác biệt), và **khoét mã QR từ chính chứng từ in ra (tem tài sản) rồi giải mã lại** — chứng minh tem in ra quét được bằng điện thoại. Bộ kiểm thử chỉ chạy khi bạn cài thư viện kiểm thử — ứng dụng không phụ thuộc chúng.
+`qr-test.js` gồm **147 phép kiểm chứng** cho cả mã QR và mã vạch in trên tem:
 
-`smoke-test.js` gồm **181 phép kiểm tra**: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất, mọi mẫu hệ thống phải ra dữ liệu), 9 chứng từ in, **quét mã QR/mã vạch** (bộ sinh QR, tra cứu mã, luồng quét kiểm kê, tem có mã QR), và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
+| Mục | Nội dung |
+|---|---|
+| 0–1 | Giải mã QR do hệ thống sinh bằng bộ giải mã độc lập **ZXing** (mã tài sản, liên kết `ams://`, tiếng Việt có dấu, chuỗi dài) |
+| 2 | 10 phiên bản × 4 mức sửa lỗi × 3 độ dài (kể cả trường hợp sát dung lượng) — tất cả giải mã đúng |
+| 3 | **Đối chiếu từng ô** với bộ sinh tham chiếu `qrcode-generator` — 0 ô khác biệt |
+| 4 | **Khoét mã QR từ chính tem in ra rồi giải mã lại** — chứng minh tem quét được |
+| 5 | **Mã vạch Code 128**: bảng pattern 0–106 trùng ZXing, giải mã các mã do hệ thống sinh, nội dung tiếng Việt chuyển ASCII, **khoét mã vạch từ tem in rồi giải mã**, và kiểm tra **X-dimension ≈ 0,47 mm/module** (khuyến nghị ≥ 0,25 mm) |
+
+Công cụ này cần cài thêm thư viện kiểm thử (`@zxing/library`, tuỳ chọn `qrcode-generator`); ứng dụng chạy thật không phụ thuộc chúng. Bộ kiểm thử chỉ chạy khi bạn cài thư viện kiểm thử — ứng dụng không phụ thuộc chúng.
+
+`smoke-test.js` gồm **185 phép kiểm tra**: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất, mọi mẫu hệ thống phải ra dữ liệu), 9 chứng từ in, **quét mã QR/mã vạch** (bộ sinh QR, tra cứu mã, luồng quét kiểm kê, tem có mã QR), và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
 
 ---
 
@@ -157,7 +167,7 @@ node server/tools/qr-test.js                    # 141 phép kiểm chứng (gi�
 - **Bốn kết quả chuẩn**: Khớp • Sai vị trí • Hư hỏng • Không tìm thấy (+ **Phát hiện thêm** khi tài sản không có trong danh sách sổ sách). Ghi kèm số lượng kiểm kê thực tế và ghi chú.
 - **Không có camera vẫn dùng được**: nhập mã bằng tay, **chụp/đọc mã từ ảnh** (kéo–thả tệp), hoặc nút **Quét thử** để mô phỏng quét ngay trên máy tính.
 - **Theo dõi & sửa sai**: thẻ tiến độ (đã kiểm kê / còn lại / khớp / lệch / tỷ lệ %), **lịch sử 20 lượt quét gần nhất** kèm người quét – giờ quét, mỗi dòng có nút **↩ Hoàn tác** để bỏ lượt ghi nhận sai.
-- **In tem để quét**: mọi tài sản có nút **🏷 In tem QR**; chọn số nhãn (2–16, mặc định 8) → in hàng loạt tem khổ A4, mỗi tem có **mã QR `ams://asset/<mã>`** (điện thoại quét là mở đúng tài sản) và **mã vạch Code128**.
+- **In tem để quét**: mọi tài sản có nút **🏷 In tem QR**; chọn số nhãn (2–16, mặc định 8) → in hàng loạt tem khổ A4. Mỗi tem có **mã QR `ams://asset/<mã>`** (lề trắng 4 module, mức sửa lỗi Q) và **mã vạch Code 128 chạy hết chiều ngang tem** (X-dimension ≈ 0,47 mm/module — vượt mức tối thiểu 0,25 mm nên máy quét cầm tay đọc tốt).
 - **Mã mà hệ thống hiểu**: mã tài sản (`TS-2026-00001`), liên kết QR trên tem (`ams://asset/TS-2026-00001`), liên kết kiểm kê (`ams://stocktake/<mã đợt>/asset/<id>)`, số sê-ri, hoặc mã đợt kiểm kê. Không phân biệt chữ hoa/thường, bỏ qua dấu cách và gạch dưới.
 - **API tương ứng**: `GET /api/scan/lookup`, `POST /api/scan/count`, `GET /api/scan/history`.
 
@@ -188,7 +198,9 @@ Mở từ **Báo cáo → 🎨 Thiết kế** (hoặc đường dẫn `#/reports
 `reportTitle` (tiêu đề) · `pageHeader` (đầu trang, lặp) · `columnHeader` (tiêu đề cột, lặp) · `groupHeader` · `detail` · `groupFooter` · `pageFooter` (chân trang, lặp) · `reportFooter` (tổng kết cuối).
 
 ### 6.2 13 loại phần tử
-Trường dữ liệu · Văn bản tĩnh · Công thức/Tổng hợp · Đường kẻ · Hình chữ nhật · Hình ảnh/Logo · Số trang · Trang X/Y · Ngày giờ in · Thông tin hệ thống · Khối văn bản dài · Mã vạch Code128 · Mã QR.
+Trường dữ liệu · Văn bản tĩnh · Công thức/Tổng hợp · Đường kẻ · Hình chữ nhật · Hình ảnh/Logo · Số trang · Trang X/Y · Ngày giờ in · Thông tin hệ thống · Khối văn bản dài · **Mã vạch Code 128** · **Mã QR**.
+
+Hai phần tử mã hoá dùng bộ sinh thật trong `server/lib/qr.js` (QR, ISO/IEC 18004) và `server/lib/barcode.js` (Code 128, ISO/IEC 15417): tự chọn bộ ký tự A/B/C và bề rộng tối ưu, tự thêm lề trắng chuẩn, nội dung tiếng Việt được chuyển sang ASCII không dấu. Phần tử mã vạch nhận thêm khoá `quiet` (lề trắng, mặc định 10 module) và `showText` (in nội dung dưới mã).
 
 ### 6.3 Tham số theo nguồn dữ liệu
 Mỗi mẫu hệ thống được gắn bộ tham số phù hợp với nguồn dữ liệu: tài sản lọc theo *Từ/Đến ngày mua* + *Phòng ban*; khấu hao/sổ tài sản lọc theo *Từ/Đến kỳ (YYYY-MM)*; báo cáo theo phòng ban lọc theo *Phòng ban*; lịch sử bảo trì lọc theo khoảng ngày thực hiện; các báo cáo khác lọc theo từ khoá. Tham số không áp dụng được cho nguồn dữ liệu sẽ tự động bị bỏ qua thay vì lọc sạch dữ liệu.

@@ -1175,7 +1175,7 @@ function run(opts) {
       { id: 'lb2', type: 'text', x: 84, y: 16, w: 62, h: 4.5, text: '{code}', fontSize: 9, align: 'center', fontFamily: 'monospace' },
       { id: 'ld6', type: 'text', x: 84, y: 22, w: 62, h: 4.5, text: 'Số lượng: {quantity} {unit}', fontSize: 8, color: '#475569' },
       { id: 'ld7', type: 'text', x: 84, y: 26.5, w: 62, h: 4.5, text: 'SL kiểm kê: ............  Ngày: __/__/____', fontSize: 8, color: '#64748b' },
-      { id: 'lq1', type: 'qrcode', x: 150, y: 2, w: 34, h: 30, text: 'ams://asset/{code}', ecc: 'Q', quiet: 1 },
+      { id: 'lq1', type: 'qrcode', x: 150, y: 2, w: 34, h: 30, text: 'ams://asset/{code}', ecc: 'Q', quiet: 4 },
       { id: 'lq2', type: 'text', x: 150, y: 32, w: 34, h: 4, text: 'Quét để kiểm kê', fontSize: 7, align: 'center', color: '#64748b' },
     ],
   };
