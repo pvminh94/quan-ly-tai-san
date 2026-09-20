@@ -520,3 +520,17 @@ body.dark .dz-canvas-wrap { background: #070d1a; }
 .scan-history-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge.b-ok { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
 .badge.b-warn { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+
+/* ---- Hộp thoại quét (quét ngay trong màn hình / quét tìm tài sản) ---- */
+.sd-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.sd-grid { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .sd-grid { grid-template-columns: 1fr; } }
+.sd-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.scan-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.scan-chips .chip { cursor: default; }
+.chip.muted-chip { opacity: .75; }
+.scan-live { display: inline-flex; align-items: center; gap: 5px; }
+.scan-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; animation: livePulse 1.6s ease-in-out infinite; }
+@keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.scan-banner.flash { animation: dupFlash 1.2s ease; }
+@keyframes dupFlash { 0% { box-shadow: 0 0 0 4px rgba(239,68,68,.4); } 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); } }

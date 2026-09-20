@@ -53,6 +53,8 @@ function infoTable(rows) {
 
 function wrap(cfg, title, body, opts) {
   const o = opts || {};
+  // multiSheet: body tự chứa các div .sheet (cho trang tem nhiều trang)
+  const sheets = o.multiSheet ? body : '<div class="sheet">' + body + '</div>';
   return `<!DOCTYPE html>
 <html lang="vi"><head><meta charset="utf-8"/>
 <title>${esc(title)}</title>
@@ -85,6 +87,8 @@ function wrap(cfg, title, body, opts) {
   .sig-hint { font-style:italic; font-size:9pt; color:#64748b; margin-bottom:64px; }
   .sig-name { font-size:10.5pt; border-top:1px dashed #94a3b8; padding-top:4px; }
   .note { font-family:"Inter",Arial,sans-serif; font-size:10pt; color:#334155; }
+  .label-sheet { padding:10mm 12mm; page-break-after:always; }
+  .label-sheet:last-of-type { page-break-after:auto; }
   @media print {
     body { background:#fff; }
     .toolbar { display:none; }
@@ -99,7 +103,7 @@ function wrap(cfg, title, body, opts) {
   <button onclick="window.print()">🖨 In / Lưu PDF</button>
   <a class="secondary" href="javascript:window.close()">Đóng</a>
 </div>
-<div class="sheet">${body}</div>
+${sheets}
 ${o.autoPrint ? '<script>window.onload=function(){setTimeout(function(){window.print()},300)}</script>' : ''}
 </body></html>`;
 }
@@ -327,70 +331,136 @@ function warrantyDoc(id, ctx) {
   return wrap(ctx.settings, title, body);
 }
 
-/**
- * Nhãn tem tài sản — khổ A4 8 tem/trang (2 cột × 4 hàng), mỗi tem có:
+/* ---------------------------- Nhãn tem tài sản ----------------------------
+ * Mỗi tem có:
  *  - Mã QR thật (bộ sinh ISO 18004 trong lib/qr.js) trỏ tới ams://asset/<mã>
- *  - Mã vạch Code128 thật (lib/report-engine.js) mang chính mã tài sản
+ *  - Mã vạch Code128 thật (lib/barcode.js) mang chính mã tài sản, chạy hết
+ *    chiều ngang tem (X-dimension ≈ 0,45 mm/module trên tem 88 mm)
  *  - Thông tin nhận diện nhanh + trường ghi tay cho người kiểm kê
+ *
+ * Kích thước tem luôn vừa đúng vùng in A4 (182 × 269 mm với @page margin 14 mm):
+ *  2 nhãn → 1×2 (178×120) • 4 nhãn → 2×2 (88×120) • 8 nhãn → 2×4 (88×60)
+ *  12 nhãn → 2×6 (88×40) • 16 nhãn → 2×8 (88×30)
+ */
+function labelLayout(copies) {
+  if (copies <= 2) return { perRow: 1, w: 178, h: 120 };
+  if (copies <= 4) return { perRow: 2, w: 88, h: 120 };
+  if (copies <= 8) return { perRow: 2, w: 88, h: 60 };
+  if (copies <= 12) return { perRow: 2, w: 88, h: 40 };
+  return { perRow: 2, w: 88, h: 30 };
+}
+
+/** Markup một nhãn tem (dùng chung cho in 1 tài sản và in hàng loạt) */
+function assetLabelMarkup(asset, ctx, w, h) {
+  const qr = reportEngine.qrSVG('ams://asset/' + asset.code, 1, { ecc: 'Q', quiet: 4 });
+  const bar = reportEngine.code128SVG(String(asset.code), 1, 1);
+  const qtyLabel = Number(asset.quantity) > 1 ? `${Number(asset.quantity).toLocaleString('vi-VN')} ${asset.unit || 'cái'}` : '1 cái';
+  const tier = h >= 100 ? 'full' : h >= 55 ? 'c1' : h >= 36 ? 'c2' : 'c3';
+  const qrMm = tier === 'full' ? (w >= 150 ? 42 : 30) : tier === 'c1' ? 20 : tier === 'c2' ? 15 : 12;
+  const barMm = tier === 'full' ? 10 : tier === 'c1' ? 6 : tier === 'c2' ? 4.5 : 4;
+  const line = (label, value, size) =>
+    `<div style="font-size:${size || 8}pt;color:#475569;line-height:1.35">${label} ${esc(value || '—')}</div>`;
+  const pad = tier === 'full' ? '4mm 5mm' : tier === 'c1' ? '3mm 4mm' : '2.5mm 3.5mm';
+  const head = tier === 'c3' ? '' : `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #94a3b8;padding-bottom:${tier === 'c2' ? 1 : 1.5}px;margin-bottom:${tier === 'c2' ? 1.5 : 2}px">
+      <div style="font-weight:700;font-size:${tier === 'full' ? 10 : tier === 'c1' ? 8.5 : 7}pt;text-transform:uppercase;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(ctx.settings.company.shortName || ctx.settings.company.name)}</div>
+      <div style="font-size:${tier === 'c1' ? 6.5 : 6}pt;color:#64748b;white-space:nowrap">NHÃN TÀI SẢN</div>
+    </div>`;
+  const codeSize = tier === 'full' ? 14 : tier === 'c1' ? 12 : tier === 'c2' ? 10.5 : 9;
+  const nameSize = tier === 'full' ? 10 : tier === 'c1' ? 9 : tier === 'c2' ? 7.5 : 6.5;
+  const nameLines = tier === 'c3' ? 1 : 2;
+  const footer = tier === 'c3' ? '' : `
+    <div style="flex:none;display:flex;gap:4px;font-size:6.5pt;color:#94a3b8;margin-top:${tier === 'c1' ? 1 : 1.5}px">
+      <span>SL kiểm kê: ......</span><span>Ngày: __/__/____</span><span>Người KK: ..........</span>
+    </div>`;
+  return `
+  <div class="tem" style="width:${w}mm;height:${h}mm;border:1.5px solid #0f172a;border-radius:3px;padding:${pad};font-family:Inter,Arial;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column">
+    ${head}
+    <div style="display:flex;gap:4px;flex:1;min-height:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:6pt;color:#64748b;text-transform:uppercase;letter-spacing:.4px;line-height:1">${tier === 'full' || tier === 'c1' ? 'Mã tài sản' : ''}</div>
+        <div style="font-weight:800;font-size:${codeSize}pt;letter-spacing:.5px;line-height:1.1;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(asset.code)}</div>
+        <div style="font-size:${nameSize}pt;font-weight:600;line-height:1.2;max-height:${nameLines * (nameSize * 1.25)}px;overflow:hidden">${esc(asset.name)}</div>
+        ${tier === 'full' ? line('Danh mục:', asset.categoryName) : ''}
+        ${tier !== 'c3' ? line('Bộ phận:', asset.departmentName, tier === 'c2' ? 7 : 8) : ''}
+        ${tier === 'full' ? line('Người sử dụng:', asset.assigneeName) : ''}
+        ${tier !== 'c3' ? line('SL:', qtyLabel, tier === 'c2' ? 7 : 8) : ''}
+        ${tier === 'full' ? `<div style="font-size:7pt;color:#64748b;margin-top:1px">Ngày mua: ${date(asset.purchaseDate)} • BH đến ${date(asset.warrantyEnd)}</div>` : ''}
+      </div>
+      <div style="width:${qrMm}mm;flex:none;text-align:center">
+        <div style="width:${qrMm}mm;height:${qrMm}mm;margin:0 auto">${qr}</div>
+        ${tier !== 'c3' ? `<div style="font-family:monospace;font-size:${tier === 'c2' ? 6 : 7}pt;letter-spacing:.5px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(asset.code)}</div>` : ''}
+      </div>
+    </div>
+
+    <div style="height:${barMm}mm;flex:none;margin-top:2px">${bar}</div>
+    ${footer}
+  </div>`;
+}
+
+/**
+ * Tờ nhãn tem tài sản (1 tài sản, nhiều bản). ?copies=2|4|8|12|16 (mặc định 8).
  */
 function assetLabelDoc(id, ctx, opts) {
   const asset = service.decorateAsset(store.find('assets', id));
   if (!asset) return null;
   const o = opts || {};
-  // Số bản in trong một trang (mặc định 8 tem: 2 cột × 4 hàng khổ A4)
-  const copies = Math.max(1, Math.min(32, Number(o.copies) || 8));
-  const perRow = copies >= 6 ? 2 : copies >= 2 ? 2 : 1;
-  const labelW = perRow === 2 ? 92 : 186;
-  const labelH = copies >= 6 ? 63 : 42;
+  const copies = Math.max(1, Math.min(16, Number(o.copies) || 8));
+  const L = labelLayout(copies);
+  const units = Array.from({ length: copies }, () => asset);
+  return labelSheetBody(units, L, `Tờ tem ${copies} nhãn (A4) — mã QR trỏ tới <span class="mono">ams://asset/${esc(asset.code)}</span>, quét bằng điện thoại để mở hồ sơ tài sản hoặc kiểm kê nhanh.`, 'NHÃN TÀI SẢN — ' + asset.code, ctx);
+}
 
-  const qr = reportEngine.qrSVG('ams://asset/' + asset.code, 1, { ecc: 'Q', quiet: 4 });
-  const bar = reportEngine.code128SVG(String(asset.code), 1, 1);
-  const pickQty = Number(o.pickQty) || 1;
-  const qtyLabel = Number(asset.quantity) > 1 ? `${Number(asset.quantity).toLocaleString('vi-VN')} ${asset.unit || 'cái'}` : '1 cái';
+/**
+ * IN TEM HÀNG LOẠT — 1 lượt ra nhiều tài sản (mỗi tài sản 1 tem), tự phân trang A4.
+ * Nguồn danh sách (theo thứ tự ưu tiên):
+ *  - assetIds=1,2,3          : danh sách tài sản đã chọn
+ *  - stocktakeId=<id>        : toàn bộ danh sách của một đợt kiểm kê
+ *  - departmentId / locationId / categoryId : theo phạm vi phòng ban / vị trí / danh mục
+ *  - copies=<n> (mặc định 1, tối đa 4): số bản tem cho mỗi tài sản
+ */
+function assetLabelsBatchDoc(params, ctx) {
+  const p = params || {};
+  const ids = String(p.assetIds || '').split(',').map((s) => s.trim()).filter(Boolean);
+  let assets = [];
+  if (ids.length) {
+    assets = ids.map((x) => store.find('assets', x)).filter((a) => a && !a.isDeleted);
+  } else if (p.stocktakeId) {
+    const seen = new Set();
+    store.filter('stocktake_items', (i) => String(i.stocktakeId) === String(p.stocktakeId)).forEach((i) => {
+      if (seen.has(String(i.assetId))) return;
+      seen.add(String(i.assetId));
+      const a = store.find('assets', i.assetId);
+      if (a && !a.isDeleted) assets.push(a);
+    });
+  } else {
+    assets = store.filter('assets', (a) => !a.isDeleted && !['disposed'].includes(a.status));
+    if (p.departmentId) assets = assets.filter((a) => String(a.departmentId) === String(p.departmentId));
+    if (p.locationId) assets = assets.filter((a) => String(a.locationId) === String(p.locationId));
+    if (p.categoryId) assets = assets.filter((a) => String(a.categoryId) === String(p.categoryId));
+  }
+  const copies = Math.max(1, Math.min(4, Number(p.copies) || 1));
+  const L = { w: 88, h: 60 }; // 2 cột × 4 hàng = 8 tem/tờ A4
+  const perPage = L.perRow || 2, rowsPerPage = 4;
+  const units = [];
+  assets.forEach((a) => { for (let i = 0; i < copies; i++) units.push(a); });
+  const note = `${assets.length} tài sản • ${units.length} tem • ${copies > 1 ? copies + ' bản/tài sản • ' : ''}8 tem mỗi tờ A4 — quét bằng điện thoại để kiểm kê nhanh hoặc mở hồ sơ tài sản.`;
+  return labelSheetBody(units, Object.assign({ perPage: perPage * rowsPerPage }, L), note, 'NHÃN TÀI SẢN — IN HÀNG LOẠT (' + assets.length + ' TÀI SẢN)', ctx);
+}
 
-  // Bố cục: thông tin + QR bên phải, mã vạch Code128 chạy hết chiều ngang tem (đủ rộng để quét)
-  const compact = labelH <= 46;
-  const qrMm = compact ? 22 : 28;
-  const barMm = compact ? 8 : 10;
-  const line = (label, value, size) =>
-    `<div style="font-size:${size || 8}pt;color:#475569;line-height:1.35">${label} ${esc(value || '—')}</div>`;
-  const one = `
-  <div class="tem" style="width:${labelW}mm;height:${labelH}mm;border:1.5px solid #0f172a;border-radius:6px;padding:6px 7px;padding-bottom:13px;font-family:Inter,Arial;box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direction:column">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #94a3b8;padding-bottom:2px;margin-bottom:3px">
-      <div style="font-weight:700;font-size:${compact ? 8.5 : 10}pt;text-transform:uppercase;line-height:1.15">${esc(ctx.settings.company.shortName || ctx.settings.company.name)}</div>
-      <div style="font-size:7pt;color:#64748b;white-space:nowrap">NHÃN TÀI SẢN</div>
+/** Dựng các tờ A4 (mỗi tờ tối đa 8 tem) từ danh sách tài sản, tự phân trang */
+function labelSheetBody(units, L, note, title, ctx) {
+  const perPage = L.perPage || 8;
+  const pages = [];
+  for (let i = 0; i < units.length; i += perPage) pages.push(units.slice(i, i + perPage));
+  const body = pages.map((pg, pi) => `
+  <div class="sheet label-sheet">
+    <div style="display:flex;flex-wrap:wrap;gap:4mm;justify-content:flex-start">
+      ${pg.map((a) => assetLabelMarkup(service.decorateAsset(a), ctx, L.w, L.h)).join('')}
     </div>
-
-    <div style="display:flex;gap:5px;flex:1;min-height:0">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:7pt;color:#475569;text-transform:uppercase;letter-spacing:.4px">Mã tài sản</div>
-        <div style="font-weight:800;font-size:${compact ? 12 : 14}pt;letter-spacing:.5px;line-height:1.1;font-family:monospace">${esc(asset.code)}</div>
-        <div style="font-size:${compact ? 9 : 10}pt;font-weight:600;margin:2px 0;line-height:1.2;max-height:${compact ? 9 : 12}mm;overflow:hidden">${esc(asset.name)}</div>
-        ${line('Danh mục:', asset.categoryName)}
-        ${line('Bộ phận:', asset.departmentName)}
-        ${compact ? '' : line('Người sử dụng:', asset.assigneeName)}
-        ${line('Số lượng:', qtyLabel)}
-        ${compact ? '' : `<div style="font-size:7pt;color:#64748b;margin-top:1px">Ngày mua: ${date(asset.purchaseDate)} • BH đến ${date(asset.warrantyEnd)}</div>`}
-      </div>
-      <div style="width:${qrMm}mm;flex:none;text-align:center">
-        <div style="width:${qrMm}mm;height:${qrMm}mm;margin:0 auto">${qr}</div>
-        <div style="font-family:monospace;font-size:${compact ? 7 : 8}pt;letter-spacing:.5px;margin-top:1px">${esc(asset.code)}</div>
-      </div>
-    </div>
-
-    <div style="height:${barMm}mm;flex:none;margin:2px 0 1px">${bar}</div>
-
-    <div style="position:absolute;bottom:2px;left:7px;right:7px;display:flex;gap:5px;font-size:6.5pt;color:#94a3b8">
-      <span>SL kiểm kê: ......</span><span>Ngày: __/__/____</span><span>Người KK: ..........</span>
-    </div>
-  </div>`;
-
-  const body = `
-  <div style="display:flex;flex-wrap:wrap;gap:4mm;justify-content:flex-start">
-    ${Array.from({ length: copies }).map(() => one).join('')}
-  </div>
-  <div style="font-size:8pt;color:#64748b;margin-top:4px">Tờ tem ${copies} nhãn (A4) — mã QR trỏ tới <span class="mono">ams://asset/${esc(asset.code)}</span>, quét bằng điện thoại để mở hồ sơ tài sản hoặc kiểm kê nhanh.</div>`;
-  return wrap(ctx.settings, 'NHÃN TÀI SẢN — ' + asset.code, body, { autoPrint: false });
+    <div style="font-size:8pt;color:#64748b;margin-top:3mm">${pages.length > 1 ? `Tờ ${pi + 1}/${pages.length} • ` : ''}${note}</div>
+  </div>`).join('');
+  return wrap(ctx.settings, title, body, { autoPrint: false, multiSheet: true });
 }
 
 function depreciationDoc(id, ctx) {
@@ -489,4 +559,4 @@ function render(type, id, options) {
   return handler(id, ctx, q || {});
 }
 
-module.exports = { render, HANDLERS };
+module.exports = { render, HANDLERS, assetLabelsBatch: assetLabelsBatchDoc, assetLabelMarkup, labelLayout };

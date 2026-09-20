@@ -480,6 +480,113 @@ async function waitFor(fn, timeout, step) {
     }
   } catch (e) { bad('Luồng quét mã lỗi', e.message); }
 
+  // ---- In tem hàng loạt + Quét ngay trong màn hình kiểm kê + Quét tìm tài sản ----
+  try {
+    window.location.hash = '#/assets';
+    const lbBtn = await waitFor(() => doc.getElementById('hd-label-batch'), 10000);
+    if (lbBtn) ok('Danh sách tài sản có nút "In tem hàng loạt"');
+    else bad('Thiếu nút In tem hàng loạt trên danh sách tài sản');
+    if (doc.getElementById('hd-scan-asset')) ok('Danh sách tài sản có nút "Quét tìm tài sản"');
+    else bad('Thiếu nút Quét tìm tài sản trên danh sách tài sản');
+    const topScan = doc.getElementById('btn-top-scan');
+    if (topScan && !topScan.hidden) ok('Nút quét mã ở thanh trên cùng (toàn cục)');
+    else bad('Thiếu nút quét ở thanh trên cùng');
+
+    // Hộp thoại in tem hàng loạt: đổi phạm vi → ước tính số tem cập nhật
+    window.Pages.labelBatchDialog({});
+    const lbModal = await waitFor(() => {
+      const mods = doc.querySelectorAll('.modal');
+      return mods.length ? Array.from(mods).find((mm) => mm.querySelector('#lb-source')) : null;
+    }, 8000);
+    if (!lbModal) bad('Hộp thoại in tem hàng loạt không mở');
+    else {
+      ok('Hộp thoại in tem hàng loạt mở (nguồn: đã chọn/phòng ban/vị trí/danh mục/đợt kiểm kê)');
+      const lbScope = lbModal.querySelector('#lb-scope');
+      await waitFor(() => lbScope && lbScope.options.length > 1, 8000);
+      if (lbScope && lbScope.options.length > 1) {
+        // Duyệt các phòng ban đến khi gặp phạm vi có tài sản (phòng ban đầu có thể trống)
+        let counted = false;
+        for (const opt of Array.from(lbScope.options).slice(1)) {
+          lbScope.value = opt.value;
+          lbScope.dispatchEvent(new window.Event('change', { bubbles: true }));
+          counted = !!(await waitFor(() => /→/.test(lbModal.querySelector('#lb-count').value), 6000));
+          if (counted) break;
+        }
+        if (counted) ok('Ước tính tem hàng loạt cập nhật theo phạm vi', lbModal.querySelector('#lb-count').value);
+        else bad('Ước tính tem hàng loạt không cập nhật', lbModal.querySelector('#lb-count').value);
+      } else bad('Hộp thoại in tem: dropdown phạm vi trống');
+      const lbClose = lbModal.querySelector('.modal-foot .btn:first-child') || lbModal.querySelector('.icon-btn.x');
+      if (lbClose) lbClose.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    }
+    await sleep(300);
+
+    // Quét ngay trong màn hình kiểm kê: mở hộp thoại, nhập mã, ghi nhận không chuyển trang
+    let skOpen = null, free2 = null;
+    const skList = await apiRequest('GET', '/api/entities/stocktakes?status=open&limit=20&sort=id&order=desc');
+    for (const s of ((skList.json || {}).data || [])) {
+      const d = await apiRequest('GET', '/api/entities/stocktakes/' + s.id);
+      const its = (((d.json || {}).meta || {}).related || {}).items || [];
+      const f = its.find((i) => !i.counted && i.assetCode);
+      if (f) { skOpen = s; free2 = f; break; }
+    }
+    if (!skOpen) bad('Không có đợt kiểm kê đang mở (chưa kiểm kê hết) để thử quét ngay');
+    else {
+      window.location.hash = '#/stocktakes/' + skOpen.id + '/count';
+      const skScanBtn = await waitFor(() => doc.getElementById('sk-scan'), 10000);
+      if (!skScanBtn) bad('Màn hình kiểm kê thiếu nút "Quét ngay"');
+      else {
+        ok('Màn hình kiểm kê có nút "Quét ngay" (hộp thoại quét tại chỗ)');
+        skScanBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        const sdInput = await waitFor(() => doc.getElementById('sd-input'), 10000);
+        if (!sdInput) bad('Hộp thoại quét ngay không mở');
+        else {
+          ok('Hộp thoại quét ngay mở (khung camera + ô nhập mã, không chuyển trang)');
+          sdInput.value = free2.assetCode;
+          sdInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+          doc.getElementById('sd-go').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+          const sdRec = await waitFor(() => /Đã ghi nhận/.test(doc.getElementById('sd-result').innerHTML), 15000);
+          if (sdRec) ok('Quét ngay: quét là ghi kết quả luôn vào đợt kiểm kê');
+          else bad('Quét ngay không ghi nhận được kết quả');
+          const rowUpd = await waitFor(() => {
+            const rows = Array.from(doc.querySelectorAll('#sk-table tbody tr'));
+            const tr = rows.find((r) => (r.querySelector('.mono') || {}).textContent === free2.assetCode);
+            return tr && tr.querySelector('.sk-counted') && tr.querySelector('.sk-counted').checked;
+          }, 8000);
+          if (rowUpd) ok('Sau quét, dòng tương ứng trên màn hình kiểm kê được đánh dấu ngay');
+          else bad('Dòng kiểm kê không được cập nhật sau khi quét');
+          const sdClose = Array.from(doc.querySelectorAll('.modal-foot .btn')).find((b) => /Đóng/.test(b.textContent));
+          if (sdClose) sdClose.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+          await apiRequest('POST', '/api/stocktakes/' + skOpen.id + '/items/' + free2.id, { counted: false, result: '', note: '' });
+          ok('Dọn dẹp: khôi phục dòng kiểm kê về chưa kiểm kê', free2.assetCode);
+        }
+      }
+    }
+
+    // Quét để tìm tài sản: hộp thoại → nhập mã → mở thẳng hồ sơ tài sản
+    window.location.hash = '#/assets';
+    await waitFor(() => doc.getElementById('hd-scan-asset'), 10000);
+    const target = await apiRequest('GET', '/api/entities/assets?limit=1&sort=id&order=desc');
+    const ta = ((target.json || {}).data || [])[0];
+    if (!ta) bad('Không có tài sản để thử quét tìm');
+    else {
+      window.Pages.scanAssetDialog();
+      const saInput = await waitFor(() => doc.getElementById('sa-input'), 10000);
+      if (!saInput) bad('Hộp thoại quét tìm tài sản không mở');
+      else {
+        ok('Hộp thoại quét tìm tài sản mở (từ danh sách tài sản/thanh trên cùng)');
+        saInput.value = ta.code;
+        saInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+        doc.getElementById('sa-go').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        const foundIt = await waitFor(() => /Đã tìm thấy/.test((doc.getElementById('sa-result') || {}).innerHTML || ''), 10000);
+        if (foundIt) ok('Quét tìm: nhận diện tài sản đúng theo mã');
+        else bad('Quét tìm: không nhận diện được tài sản');
+        const navOk = await waitFor(() => window.location.hash === '#/assets/' + ta.id, 8000);
+        if (navOk) ok('Quét tìm: mở thẳng hồ sơ tài sản tương ứng');
+        else bad('Quét tìm: không mở hồ sơ tài sản', window.location.hash);
+      }
+    }
+  } catch (e) { bad('Luồng in tem hàng loạt / quét mới lỗi', e.message); }
+
   // ---- đăng xuất (chạy cuối vì sẽ kết thúc phiên) ----
   try {
     doc.getElementById('user-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

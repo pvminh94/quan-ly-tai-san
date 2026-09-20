@@ -1230,6 +1230,114 @@ function handleScanHistory(ctx) {
   ok(res, rows, { total: rows.length, stocktake: stocktakeProgress(stocktake) });
 }
 
+const SCAN_RESULT_LABELS = { match: 'Khớp sổ sách', wrong_location: 'Sai vị trí', damaged: 'Hư hỏng', missing: 'Không tìm thấy', extra: 'Phát hiện thêm' };
+
+/**
+ * Xuất kết quả quét kiểm kê ra Excel (.xlsx) hoặc CSV.
+ * GET /api/scan/export?stocktakeId=<id>&format=xlsx|csv
+ */
+function handleScanExport(ctx) {
+  const { res, query } = ctx;
+  const stocktake = store.find('stocktakes', query.get('stocktakeId'));
+  if (!stocktake) return fail(res, 404, 'Không tìm thấy đợt kiểm kê');
+  const format = (query.get('format') || 'xlsx').toLowerCase();
+  const items = store
+    .filter('stocktake_items', (i) => String(i.stocktakeId) === String(stocktake.id))
+    .sort((a, b) => String(a.assetCode).localeCompare(String(b.assetCode), 'vi'));
+  const rows = items.map((i, idx) => {
+    const d = service.decorate('stocktake_items', i);
+    const a = store.find('assets', i.assetId) || {};
+    return {
+      stt: idx + 1,
+      assetCode: d.assetCode || '',
+      assetName: d.assetName || '',
+      categoryName: service.nameOf('categories', a.categoryId),
+      departmentName: service.nameOf('departments', a.departmentId),
+      expectedLocationName: d.expectedLocationName || '',
+      locationName: d.locationName || '',
+      bookQty: Number(d.bookQty) || 0,
+      countedQty: d.countedQty === null || d.countedQty === undefined ? '' : Number(d.countedQty),
+      counted: d.counted ? 'Có' : 'Chưa',
+      resultLabel: d.counted ? (SCAN_RESULT_LABELS[d.result] || d.result || '—') : 'Chưa kiểm kê',
+      conditionLabel: d.conditionLabel || '',
+      countedByName: d.countedByName || '',
+      countedAt: d.countedAt ? new Date(d.countedAt).toLocaleString('vi-VN') : '',
+      note: d.note || '',
+    };
+  });
+  const counted = rows.filter((r) => r.counted === 'Có').length;
+  const cols = [
+    { key: 'stt', label: 'STT', format: 'number', w: 8 },
+    { key: 'assetCode', label: 'Mã tài sản', format: 'text', w: 16 },
+    { key: 'assetName', label: 'Tên tài sản', format: 'text', w: 34 },
+    { key: 'categoryName', label: 'Danh mục', format: 'text', w: 22 },
+    { key: 'departmentName', label: 'Phòng ban', format: 'text', w: 22 },
+    { key: 'expectedLocationName', label: 'Vị trí sổ sách', format: 'text', w: 20 },
+    { key: 'locationName', label: 'Vị trí thực tế', format: 'text', w: 20 },
+    { key: 'bookQty', label: 'SL sổ sách', format: 'number', w: 10 },
+    { key: 'countedQty', label: 'SL kiểm kê', format: 'number', w: 12 },
+    { key: 'counted', label: 'Đã kiểm kê', format: 'text', w: 12 },
+    { key: 'resultLabel', label: 'Kết quả', format: 'text', w: 18 },
+    { key: 'conditionLabel', label: 'Tình trạng', format: 'text', w: 14 },
+    { key: 'countedByName', label: 'Người kiểm kê', format: 'text', w: 20 },
+    { key: 'countedAt', label: 'Thời điểm', format: 'text', w: 18 },
+    { key: 'note', label: 'Ghi chú', format: 'text', w: 30 },
+  ];
+  const filenameBase = util.slug('Ket-qua-quet-kiem-ke ' + stocktake.code) + '-' + util.todayStr();
+  const audit = () => service.audit('EXPORT', 'stocktakes', {
+    username: ctx.user.username, userId: ctx.user.id,
+    entityLabel: `Xuất kết quả quét đợt ${stocktake.code} (${format.toUpperCase()}) - ${counted}/${items.length} đã kiểm kê`,
+  });
+
+  if (format === 'csv') {
+    const csvEsc = (v) => { const s = v === null || v === undefined ? '' : String(v); return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const csv = '\ufeff' + [cols.map((c) => csvEsc(c.label)).join(','), ...rows.map((r) => cols.map((c) => csvEsc(r[c.key])).join(','))].join('\n');
+    audit();
+    const buf = Buffer.from(csv, 'utf8');
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filenameBase}.csv"`,
+      'Content-Length': buf.length,
+    });
+    return res.end(buf);
+  }
+
+  // Excel: dùng động cơ báo cáo (bộ ZIP nội bộ, không thư viện ngoài)
+  const template = {
+    name: 'Ket qua quet kiem ke - ' + stocktake.code,
+    design: { bands: { columnHeader: { elements: cols.map((c, i) => ({ type: 'field', field: c.key, label: c.label, x: i, format: c.format, w: c.w })) } } },
+  };
+  const buf = reports.renderXLSX(template, rows, reportContext(ctx));
+  audit();
+  res.writeHead(200, {
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename="${filenameBase}.xlsx"`,
+    'Content-Length': buf.length,
+  });
+  res.end(buf);
+}
+
+/**
+ * IN TEM HÀNG LOẠT — 1 lượt in ra tem A4 cho nhiều tài sản (mỗi tài sản 1 tem, tự phân trang).
+ * GET /api/documents/labels?assetIds=1,2,3  (hoặc stocktakeId / departmentId / locationId / categoryId, + copies=1..4)
+ */
+function handleLabelBatch(ctx) {
+  const { res, query } = ctx;
+  const flat = {};
+  query.forEach((v, k) => { flat[k] = v; });
+  if (!flat.assetIds && !flat.stocktakeId && !flat.departmentId && !flat.locationId && !flat.categoryId) {
+    return fail(res, 422, 'Chưa có danh sách tài sản để in. Chọn tài sản, phòng ban, vị trí, danh mục hoặc đợt kiểm kê.');
+  }
+  const html = docs.assetLabelsBatch(flat, { settings: service.settings() });
+  if (!html) return fail(res, 404, 'Không có dữ liệu để in tem');
+  service.audit('EXPORT', 'documents', {
+    username: ctx.user.username, userId: ctx.user.id,
+    entityLabel: 'In tem hàng loạt (' + (flat.assetIds || flat.stocktakeId || flat.departmentId || flat.locationId || flat.categoryId) + ')',
+  });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
 /* ============================ BÁO CÁO ============================ */
 
 function handleReportDatasets(ctx) {
@@ -1691,6 +1799,7 @@ function register(router) {
   router.get('/api/scan/lookup', handleScanLookup);
   router.post('/api/scan/count', handleScanCount);
   router.get('/api/scan/history', handleScanHistory);
+  router.get('/api/scan/export', handleScanExport);
 
   router.post('/api/transfers/:id/:action', (ctx) => workflowAction(ctx, 'transfers', 'status', transferActions));
   router.post('/api/disposals/:id/:action', (ctx) => workflowAction(ctx, 'disposals', 'status', disposalActions));
@@ -1747,6 +1856,7 @@ function register(router) {
   router.post('/api/notifications/refresh-alerts', handleRefreshAlerts);
 
   /* ---- Chứng từ in ---- */
+  router.get('/api/documents/labels', handleLabelBatch);
   router.get('/api/documents/:type/:id', handleDocument);
 
   /* ---- Health ---- */

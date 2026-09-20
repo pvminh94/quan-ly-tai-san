@@ -596,6 +596,17 @@ async function testScan() {
   check('Lịch sử quét của đợt kiểm kê', hist2.status === 200 && (hist2.json.data || []).length >= 2, (hist2.json.data || []).length + ' lượt');
   check('Lịch sử quét có tên người quét', !!(hist2.json.data[0] || {}).countedByName, (hist2.json.data[0] || {}).countedByName);
 
+  // -- 8.6 Xuất kết quả quét ra Excel/CSV --
+  const scanXlsx = await GET('/api/scan/export?stocktakeId=' + skId + '&format=xlsx', { raw: true });
+  check('Xuất kết quả quét ra Excel (.xlsx)', scanXlsx.status === 200 && String(scanXlsx.headers['content-type'] || '').includes('spreadsheetml') && scanXlsx.body.length > 2000, Math.round(scanXlsx.body.length / 1024) + ' KB');
+  check('File Excel là bộ ZIP hợp lệ (PK)', scanXlsx.body.slice(0, 2).toString() === 'PK', scanXlsx.body.slice(0, 4).toString());
+  const scanCsv = await GET('/api/scan/export?stocktakeId=' + skId + '&format=csv', { raw: true });
+  const csvText = scanCsv.body.toString();
+  check('Xuất kết quả quét ra CSV', scanCsv.status === 200 && csvText.includes('Mã tài sản') && csvText.includes(skItem.assetCode), (csvText.split('\n').length - 1) + ' dòng');
+  check('CSV chứa tên người kiểm kê đã quét', csvText.includes((hist2.json.data[0] || {}).countedByName || 'x'), (hist2.json.data[0] || {}).countedByName || '');
+  const scanXlsxBad = await GET('/api/scan/export?stocktakeId=999999');
+  check('Xuất kết quả đợt kiểm kê không tồn tại bị từ chối 404', scanXlsxBad.status === 404, 'status=' + scanXlsxBad.status);
+
   const scanBad = await POST('/api/scan/count', { stocktakeId: skId, code: 'KHONG-CO-TON-TAI-9999' });
   check('Quét mã không tồn tại bị từ chối 404', scanBad.status === 404, scanBad.json.message);
   const skClose = await POST('/api/stocktakes/' + skId + '/close', {});
@@ -611,6 +622,29 @@ async function testScan() {
   check('Nhãn tem có mã QR trỏ tới hồ sơ tài sản', !!qrTag && qrTag[1] === 'ams://asset/' + anyAsset.code, qrTag ? qrTag[1] + ' (v' + qrTag[2] + '-' + qrTag[3] + ')' : 'không thấy mã QR');
   const labelCopies = await GET('/api/documents/label/' + anyAsset.id + '?copies=4', { raw: true });
   check('Tham số số nhãn in (?copies=) hoạt động', (labelCopies.body.toString().match(/class="tem"/g) || []).length === 4, (labelCopies.body.toString().match(/class="tem"/g) || []).length + ' nhãn');
+
+  // -- 8.5 In tem hàng loạt (nhiều tài sản → nhiều tờ A4) --
+  const labelAssets = (await GET('/api/entities/assets?limit=3')).json.data;
+  const lbSel = await GET('/api/documents/labels?assetIds=' + labelAssets.map((a) => a.id).join(','), { raw: true });
+  const lbSelHtml = lbSel.body.toString();
+  check('In tem hàng loạt theo danh sách tài sản đã chọn', lbSel.status === 200 && (lbSelHtml.match(/class="tem"/g) || []).length === 3, (lbSelHtml.match(/class="tem"/g) || []).length + ' tem');
+  let lbDeptId = '';
+  for (const d of (await GET('/api/lookups/departments')).json.data) {
+    const t = await GET('/api/entities/assets?filter%5BdepartmentId%5D=' + d.id + '&limit=1');
+    if ((t.json.meta || {}).total > 0) { lbDeptId = d.id; break; }
+  }
+  const lbDept = await GET('/api/documents/labels?departmentId=' + lbDeptId, { raw: true });
+  const lbDeptTem = (lbDept.body.toString().match(/class="tem"/g) || []).length;
+  check('In tem hàng loạt theo phòng ban', lbDept.status === 200 && lbDeptTem > 0, lbDeptTem + ' tem');
+  const lbSt = await GET('/api/documents/labels?stocktakeId=' + skId, { raw: true });
+  const lbStHtml = lbSt.body.toString();
+  const lbStTem = (lbStHtml.match(/class="tem"/g) || []).length;
+  const lbStPages = (lbStHtml.match(/Tờ \d+\/\d+/g) || []).length;
+  check('In tem hàng loạt theo danh sách đợt kiểm kê', lbSt.status === 200 && lbStTem >= 1, lbStTem + ' tem');
+  check('Danh sách dài tự phân trang A4 (8 tem/tờ)', lbStTem < 8 || lbStPages === Math.ceil(lbStTem / 8), lbStTem + ' tem / ' + lbStPages + ' trang');
+  check('Mỗi tem hàng loạt có mã QR của đúng tài sản', (lbStHtml.match(/data-qr="ams:\/\/asset\//g) || []).length === lbStTem, lbStTem + ' mã QR');
+  const lbNone = await GET('/api/documents/labels');
+  check('In tem hàng loạt thiếu phạm vi bị từ chối 422', lbNone.status === 422, 'status=' + lbNone.status);
 
   // Ma trận QR nhúng trong tem phải khớp chính xác ma trận do bộ sinh tạo ra
   const qrTagFull = labelHtml.match(/<svg[^>]*data-qr="([^"]*)"[^>]*>([\s\S]*?)<\/svg>/);

@@ -307,6 +307,7 @@
     document.getElementById('app').classList.remove('hidden');
     return loadMeta().then(() => {
       buildNav();
+      document.getElementById('btn-top-scan').hidden = !App.can('assets', 'view');
       App.refreshNotifications();
       registerRoutes();
       App.Router.start();
@@ -370,6 +371,10 @@
       });
     };
 
+    document.getElementById('btn-top-scan').onclick = () => {
+      if (!App.can('assets', 'view')) return;
+      Pages.scanAssetDialog();
+    };
     document.getElementById('btn-logout').onclick = async (e) => {
       e.preventDefault();
       const dl = document.getElementById('user-dropdown');

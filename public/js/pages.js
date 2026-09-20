@@ -82,7 +82,7 @@
       entity: entityName,
       columns: o.columns || columnsFor(entityName),
       filters,
-      selectable: App.can(entity.perm, 'delete'),
+      selectable: o.selectable !== undefined ? !!o.selectable : App.can(entity.perm, 'delete'),
       importable: !o.readonly,
       rowActions: rowActions(entityName, { reload: () => table.reload(), readonly: o.readonly, extraActions }),
       bulkActions: [
@@ -98,6 +98,7 @@
             api2.clear(); table.reload();
           },
         }] : []),
+        ...(o.extraBulk || []),
         {
           label: '⬇ Xuất CSV (đã chọn)', onClick: (ids) => {
             const fields = Object.keys(entity.fields).filter((f) => !['json', 'password'].includes(entity.fields[f].type));
@@ -713,6 +714,135 @@
 
   /* ============================== Trang kiểm kê (đếm) ============================== */
 
+  /**
+   * IN TEM HÀNG LOẠT — hộp thoại chọn nguồn tài sản (đã chọn / phòng ban / vị trí /
+   * danh mục / danh sách đợt kiểm kê) → in 1 lượt ra nhiều tờ tem A4 (8 tem/tờ).
+   * opts: { assetIds: [id], stocktakeId: <id> }
+   */
+  Pages.labelBatchDialog = async function (opts) {
+    const o = Object.assign({ assetIds: null, stocktakeId: null }, opts || {});
+    const hasSel = !!(o.assetIds && o.assetIds.length);
+    const m = UI.modal({
+      size: '',
+      title: '🏷 In tem hàng loạt (A4)',
+      subtitle: 'Chọn nhiều tài sản (hoặc cả phòng ban / vị trí / danh sách đợt kiểm kê) — in 1 lượt ra nhiều tờ tem',
+      body: `
+        <div class="form-grid">
+          <label><span>Nguồn tài sản</span>
+            <select id="lb-source">
+              ${hasSel ? `<option value="selected" selected>${o.assetIds.length} tài sản đã chọn</option>` : ''}
+              <option value="department">Theo phòng ban</option>
+              <option value="location">Theo vị trí / kho</option>
+              <option value="category">Theo danh mục</option>
+              <option value="stocktake">Đợt kiểm kê (toàn bộ danh sách)</option>
+            </select></label>
+          <div id="lb-scope-wrap"></div>
+          <label><span>Số bản tem mỗi tài sản</span>
+            <select id="lb-copies">
+              <option value="1" selected>1 bản</option>
+              <option value="2">2 bản</option>
+              <option value="3">3 bản</option>
+              <option value="4">4 bản</option>
+            </select></label>
+          <label><span>Ước tính số tem sẽ in</span>
+            <input id="lb-count" readonly value="—"/></label>
+        </div>
+        <div class="muted tiny" style="margin-top:10px">📄 Tem tự phân trang A4 (8 tem mỗi tờ: 2 cột × 4 hàng). Mỗi tem có mã QR thật + mã vạch Code128 — in ra là quét được ngay để kiểm kê hoặc mở hồ sơ tài sản.</div>`,
+      footer: [
+        { label: '✕ Đóng', cls: 'ghost', onClick: (mm) => mm.close() },
+        { label: '🖨 Xem trước & In', cls: 'primary', onClick: (mm) => {
+            const qs = currentQs();
+            if (!qs) return UI.toast('Chưa có tài sản', 'Chọn nguồn tài sản hợp lệ trước khi in', 'warning');
+            mm.close();
+            API.openHTML('/api/documents/labels?' + qs);
+          } },
+      ],
+    });
+
+    const elSource = m.body.querySelector('#lb-source');
+    const elScopeWrap = m.body.querySelector('#lb-scope-wrap');
+    const elCopies = m.body.querySelector('#lb-copies');
+    const elCount = m.body.querySelector('#lb-count');
+    const state = { source: elSource.value || 'department', scopeId: '' };
+
+    function scopeOptions() {
+      switch (state.source) {
+        case 'selected': return null;
+        case 'department': return { url: '/api/lookups/departments', label: 'Chọn phòng ban' };
+        case 'location': return { url: '/api/lookups/locations', label: 'Chọn vị trí / kho' };
+        case 'category': return { url: '/api/lookups/categories', label: 'Chọn danh mục' };
+        case 'stocktake': return { url: null, label: 'Chọn đợt kiểm kê', entity: true };
+      }
+      return null;
+    }
+
+    function currentQs() {
+      const copies = Number(elCopies.value) || 1;
+      if (state.source === 'selected') {
+        return 'assetIds=' + o.assetIds.map((x) => encodeURIComponent(x)).join(',') + '&copies=' + copies;
+      }
+      if (!state.scopeId) return '';
+      const map = { department: 'departmentId', location: 'locationId', category: 'categoryId', stocktake: 'stocktakeId' };
+      return map[state.source] + '=' + encodeURIComponent(state.scopeId) + '&copies=' + copies;
+    }
+
+    async function updateCount() {
+      const copies = Number(elCopies.value) || 1;
+      let total = 0;
+      try {
+        if (state.source === 'selected') total = o.assetIds.length;
+        else if (state.source === 'stocktake') {
+          const res = await API.get('/api/entities/stocktakes/' + state.scopeId);
+          total = ((res.meta && res.meta.related && res.meta.related.items) || []).length;
+        } else if (state.scopeId) {
+          const map = { department: 'departmentId', location: 'locationId', category: 'categoryId' };
+          const res = await API.get(`/api/entities/assets?filter[${map[state.source]}]=${encodeURIComponent(state.scopeId)}&limit=1`);
+          total = (res.meta && res.meta.total) || 0;
+        }
+      } catch (e) { total = 0; }
+      elCount.value = total ? `${total} tài sản → ${U.num(total * copies)} tem` : '—';
+    }
+
+    async function renderScope() {
+      const sc = scopeOptions();
+      state.scopeId = '';
+      if (!sc) { elScopeWrap.innerHTML = ''; await updateCount(); return; }
+      const sel = document.createElement('select');
+      sel.id = 'lb-scope';
+      sel.style.minWidth = '100%';
+      sel.innerHTML = `<option value="">${sc.label}…</option>`;
+      elScopeWrap.innerHTML = '';
+      elScopeWrap.appendChild(sel);
+      try {
+        let rows = [];
+        if (sc.entity) {
+          const res = await API.get('/api/entities/stocktakes?limit=100&sort=id&order=desc');
+          rows = (res.data || []).map((s) => ({ id: s.id, label: `${s.code} — ${s.name} (${s.countedItems || 0}/${s.totalItems || 0})` }));
+        } else {
+          const res = await API.get(sc.url);
+          rows = res.data || [];
+        }
+        rows.forEach((r) => {
+          const opt = document.createElement('option');
+          opt.value = r.id;
+          opt.textContent = r.label;
+          sel.appendChild(opt);
+        });
+        // Định sẵn đợt kiểm kê nếu mở từ màn hình kiểm kê
+        if (o.stocktakeId && state.source === 'stocktake' && rows.some((r) => String(r.id) === String(o.stocktakeId))) {
+          sel.value = o.stocktakeId;
+          state.scopeId = o.stocktakeId;
+        }
+      } catch (e) { /* để trống */ }
+      sel.onchange = async () => { state.scopeId = sel.value; await updateCount(); };
+      await updateCount();
+    }
+
+    elSource.onchange = async () => { state.source = elSource.value; await renderScope(); };
+    elCopies.onchange = updateCount;
+    await renderScope();
+  };
+
   /** Hộp thoại in nhãn tem tài sản: chọn số nhãn/trang và xem trước mã QR */
   Pages.labelDialog = async function (row) {
     const qr = `<div style="display:flex;gap:14px;align-items:center">
@@ -752,12 +882,14 @@
     const res = await API.get(`/api/entities/stocktakes/${stocktakeId}`);
     const stocktake = res.data;
     const items = (res.meta.related && res.meta.related.items) || [];
+    const isOpen = stocktake.status === 'open';
     container.innerHTML = pageHead('Kiểm kê: ' + stocktake.name,
       `Mã đợt: <b class="mono">${U.esc(stocktake.code)}</b> • ${items.filter((i) => i.counted).length}/${items.length} tài sản đã kiểm kê`,
-      `<button class="btn" id="sk-export">⬇ Xuất kết quả</button>
-       <button class="btn" id="sk-label">🏷 In tem QR</button>
-       <a class="btn success" href="#/scan?stocktake=${stocktakeId}">📷 Quét mã kiểm kê</a>
-       <button class="btn primary" id="sk-save">💾 Lưu kết quả</button>
+      `${isOpen ? '<button class="btn success" id="sk-scan" title="Mở khung quét tại chỗ — quét là ghi kết quả luôn, không cần chuyển trang">📷 Quét ngay</button>' : ''}
+       ${isOpen ? '<a class="btn ghost" href="#/scan?stocktake=' + stocktakeId + '" title="Trang quét đầy đủ: lịch sử, hoàn tác, đồng bộ nhiều thiết bị, xuất Excel">→ Trang quét</a>' : ''}
+       <button class="btn" id="sk-export">⬇ Xuất kết quả</button>
+       <button class="btn" id="sk-label" title="In tem A4 cho toàn bộ danh sách đợt kiểm kê (có thể đổi phạm vi)">🏷 In tem (danh sách)</button>
+       ${isOpen ? '<button class="btn primary" id="sk-save">💾 Lưu kết quả</button>' : ''}
        <a class="btn ghost" href="#/stocktakes/${stocktakeId}">← Quay lại</a>`);
 
     const host = document.createElement('div');
@@ -822,7 +954,8 @@
 
     document.getElementById('sk-search').oninput = U.debounce(renderTable, 250);
     document.getElementById('sk-filter').onchange = renderTable;
-    document.getElementById('sk-save').onclick = async () => {
+    const skSave = document.getElementById('sk-save');
+    if (skSave) skSave.onclick = async () => {
       if (!state.dirty.size) return UI.toast('Không có thay đổi', 'Chưa có dòng nào được cập nhật', 'warning');
       UI.loading(true, 'Đang lưu kết quả kiểm kê…');
       let ok = 0;
@@ -840,11 +973,35 @@
       UI.toast('Đã lưu kết quả kiểm kê', `${ok} dòng được cập nhật`, 'success');
     };
     document.getElementById('sk-export').onclick = () => API.openHTML(`/api/documents/stocktake/${stocktakeId}`);
+
+    // Quét ngay trong màn hình kiểm kê: mở hộp thoại quét, quét là ghi kết quả luôn (không chuyển trang)
+    const skScan = document.getElementById('sk-scan');
+    if (skScan) skScan.onclick = () => Pages.scanDialog({
+      stocktakeId,
+      fixedStocktake: true,
+      autoCount: true,
+      onRecord: (item, asset, d) => {
+        if (d && d.undone) {
+          const it = state.items.find((x) => String(x.id) === String(item.id));
+          if (it) { it.counted = false; it.countedQty = null; it.countedAt = null; }
+        } else if (asset && asset.id) {
+          const it = state.items.find((x) => String(x.assetId) === String(asset.id)) || state.items.find((x) => String(x.id) === String(item.id));
+          if (it) {
+            it.counted = true;
+            if (item.result) it.result = item.result;
+            if (item.countedQty !== undefined && item.countedQty !== null) it.countedQty = item.countedQty;
+          }
+        }
+        renderTable();
+        updateStat();
+      },
+    });
+
+    // In tem hàng loạt cho toàn bộ danh sách đợt kiểm kê (hoặc đổi phạm vi: phòng ban/vị trí/danh mục)
     const skLabel = document.getElementById('sk-label');
     if (skLabel) skLabel.onclick = () => {
-      const first = state.items.find((i) => !i.counted) || state.items[0];
-      if (!first) return UI.toast('Không có tài sản', 'Đợt kiểm kê chưa có dòng nào', 'warning');
-      Pages.labelDialog({ id: first.assetId, code: first.assetCode, name: first.assetName });
+      if (!state.items.length) return UI.toast('Không có tài sản', 'Đợt kiểm kê chưa có dòng nào', 'warning');
+      Pages.labelBatchDialog({ stocktakeId });
     };
     renderTable();
   };
@@ -1206,10 +1363,22 @@
   Pages.assetsPage = function (container) {
     return Pages.entityList('assets', container, {
       headActions: `${App.can('assets', 'create') ? '<button class="btn" id="hd-import-invoice">📥 Nhập tài sản hàng loạt</button>' : ''}
+        <button class="btn" id="hd-label-batch" title="Chọn nhiều tài sản (hoặc phòng ban/vị trí/danh mục) và in 1 lượt ra nhiều tờ tem A4">🏷 In tem hàng loạt</button>
+        <button class="btn" id="hd-scan-asset" title="Quét mã QR/mã vạch để mở hồ sơ tài sản">📷 Quét tìm tài sản</button>
         ${App.can('assets', 'view') ? '<button class="btn" id="hd-reports">📊 Báo cáo tài sản</button>' : ''}`,
+      selectable: true,
+      extraBulk: [{
+        label: '🏷 In tem (đã chọn)',
+        title: 'In tem A4 cho các tài sản đã chọn',
+        onClick: (ids) => Pages.labelBatchDialog({ assetIds: ids.slice() }),
+      }],
       onReady: (table, cont) => {
         const imp = cont.querySelector('#hd-import-invoice');
         if (imp) imp.onclick = () => UI.importDialog('assets', () => table.reload());
+        const lb = cont.querySelector('#hd-label-batch');
+        if (lb) lb.onclick = () => Pages.labelBatchDialog({});
+        const sa = cont.querySelector('#hd-scan-asset');
+        if (sa) sa.onclick = () => Pages.scanAssetDialog();
         const rep = cont.querySelector('#hd-reports');
         if (rep) rep.onclick = () => App.Router.navigate('/reports');
       },
