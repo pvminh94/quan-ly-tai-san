@@ -13,6 +13,7 @@
  *   1. Giải mã nội dung thật dùng trong hệ thống (mã tài sản, liên kết tem…)
  *   2. Mọi phiên bản 1-10 × 4 mức sửa lỗi L/M/Q/H (ngắn / vừa / sát dung lượng)
  *   3. So chiếu từng ô với bộ sinh độc lập qrcode-generator (nếu đã cài)
+ *   4. Khoét mã QR từ CHÍNH chứng từ in (tem tài sản) rồi giải mã lại — chứng minh tem in ra quét được
  *
  * Ghi chú kỹ thuật: bộ dò của ZXing có thể không nhận ra ảnh tổng hợp phóng
  * to bằng số nguyên ở một số tỉ lệ nhất định (lỗi của bộ dò, không phải của mã
@@ -236,6 +237,52 @@ function section(t) { console.log('\n\u001b[1m\u001b[36m■ ' + t + '\u001b[0m')
     section('3. So chiếu với bộ sinh độc lập (bỏ qua)');
     console.log('  \u001b[90mChưa cài qrcode-generator — bỏ qua phần so chiếu từng ô.\u001b[0m');
     console.log('  \u001b[90mCài thêm: npm install --no-save qrcode-generator\u001b[0m');
+  }
+
+  /* ---------------- 4. Tem tài sản in ra có quét được không? ---------------- */
+  section('4. Khoét mã QR từ chứng từ in (tem tài sản) rồi giải mã lại');
+  try {
+    const store = require(path.join(__dirname, '..', 'lib', 'store'));
+    await store.init();
+    const docs = require(path.join(__dirname, '..', 'lib', 'documents'));
+    const service = require(path.join(__dirname, '..', 'lib', 'service'));
+    const asset = store.all('assets').find((a) => a.code === 'TS-2026-00001') || store.all('assets')[0];
+    const user = store.all('users').find((u) => u.isSuperAdmin) || store.all('users')[0];
+    const html = docs.render('label', asset.id, { user, settings: service.settings(), query: { copies: 4 } });
+    const tem = (html.match(/class="tem"/g) || []).length;
+    if (tem === 4) ok('In 4 nhãn tem theo tham số ?copies=4');
+    else bad('Số nhãn tem in ra không đúng', tem + ' tem');
+
+    const blocks = html.match(/<svg[^>]*data-qr="[^"]*"[^>]*>[\s\S]*?<\/svg>/g) || [];
+    if (blocks.length === tem) ok('Mỗi nhãn tem đều có mã QR', blocks.length + ' mã QR');
+    else bad('Số mã QR không khớp số nhãn', blocks.length + ' / ' + tem);
+
+    let decoded = 0;
+    for (const block of blocks) {
+      const box = block.match(/viewBox="0 0 (\d+) (\d+)"/);
+      const content = (block.match(/data-qr="([^"]*)"/) || [])[1];
+      const quiet = Number((block.match(/data-qr-quiet="(\d+)"/) || [])[1] || 2);
+      const n = Number(box[2]) - quiet * 2;
+      const rows = [];
+      for (let y = 0; y < n; y++) rows.push(new Array(n).fill(0));
+      const rects = block.match(/<rect x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/g) || [];
+      rects.forEach((r) => {
+        const [x, y, w, h] = r.match(/\d+/g).map(Number);
+        for (let yy = y - quiet; yy < y - quiet + h; yy++) {
+          for (let xx = x - quiet; xx < x - quiet + w; xx++) {
+            if (yy >= 0 && yy < n && xx >= 0 && xx < n) rows[yy][xx] = 1;
+          }
+        }
+      });
+      const r = decodeMatrix(rows, n, content);
+      if (r.ok) decoded++;
+      else bad('Mã QR trên tem in không giải mã được', content + ' — ' + r.how);
+    }
+    if (decoded === blocks.length && blocks.length) {
+      ok('Cả ' + decoded + ' mã QR khoét từ tem in đều giải mã đúng nội dung', 'ams://asset/' + asset.code);
+    }
+  } catch (e) {
+    bad('Không kiểm tra được chứng từ in', e.message);
   }
 
   console.log('\n' + '─'.repeat(64));

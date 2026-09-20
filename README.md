@@ -112,12 +112,12 @@ node server/tools/ui-test.js 3000               # duyệt 35 đường dẫn, 73
 
 # Kiểm chứng mã QR bằng bộ giải mã độc lập (cần ZXing, chỉ dùng khi kiểm thử):
 npm install --no-save @zxing/library qrcode-generator
-node server/tools/qr-test.js                    # 138 phép kiểm chứng (giải mã + đối chiếu từng ô)
+node server/tools/qr-test.js                    # 141 phép kiểm chứng (giải mã + đối chiếu từng ô)
 ```
 
 `ui-test.js` gồm **73 phép kiểm tra**: nạp 8 mô-đun SPA, đăng nhập, dựng menu theo phân quyền, duyệt toàn bộ 34 đường dẫn (không phát sinh lỗi JavaScript), tìm kiếm nhanh, biểu đồ SVG, biểu mẫu sinh theo metadata, Trình thiết kế báo cáo (dải in, phần tử, ghost preview), **hộp thoại xác nhận trả về đúng giá trị**, **xoá bản ghi thật qua giao diện**, **trang quét mã** (khung camera, quét thử, tra cứu mã, đổi kết quả, lịch sử, tiến độ, hoàn tác, hộp thoại in tem) và **toàn bộ luồng đăng xuất → đăng nhập lại** (cookie bị xoá, phiên thu hồi, quay về màn hình đăng nhập). Cả hai bộ kiểm thử đều tự dọn dẹp dữ liệu: dòng kiểm kê, tài sản, bản ghi nghiệp vụ đều được trả về đúng trạng thái trước khi chạy (chỉ ghi thêm **nhật ký hệ thống** và phiên đăng nhập — đúng như khi dùng thật), nên chạy lại nhiều lần cũng không làm lệch dữ liệu mẫu.
 
-`qr-test.js` gồm **138 phép kiểm chứng**: giải mã QR do hệ thống sinh bằng bộ giải mã độc lập **ZXing** (nội dung thật của hệ thống, 10 phiên bản × 4 mức sửa lỗi × 3 độ dài, kể cả trường hợp sát dung lượng), và **đối chiếu từng ô** với bộ sinh tham chiếu `qrcode-generator` (0 ô khác biệt). Bộ kiểm thử chỉ chạy khi bạn cài thư viện kiểm thử — ứng dụng không phụ thuộc chúng.
+`qr-test.js` gồm **141 phép kiểm chứng**: giải mã QR do hệ thống sinh bằng bộ giải mã độc lập **ZXing** (nội dung thật của hệ thống, 10 phiên bản × 4 mức sửa lỗi × 3 độ dài, kể cả trường hợp sát dung lượng), **đối chiếu từng ô** với bộ sinh tham chiếu `qrcode-generator` (0 ô khác biệt), và **khoét mã QR từ chính chứng từ in ra (tem tài sản) rồi giải mã lại** — chứng minh tem in ra quét được bằng điện thoại. Bộ kiểm thử chỉ chạy khi bạn cài thư viện kiểm thử — ứng dụng không phụ thuộc chúng.
 
 `smoke-test.js` gồm **181 phép kiểm tra**: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất, mọi mẫu hệ thống phải ra dữ liệu), 9 chứng từ in, **quét mã QR/mã vạch** (bộ sinh QR, tra cứu mã, luồng quét kiểm kê, tem có mã QR), và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
 

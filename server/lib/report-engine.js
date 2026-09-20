@@ -562,21 +562,23 @@ function qrSVG(text, size, opts) {
   } catch (err) {
     return '';
   }
-  const quiet = o.quiet === undefined ? 2 : Number(o.quiet) || 0;
+  // Lề trắng quanh mã (quiet zone) tính bằng module — mỗi module vẫn đúng 1 đơn vị để in nét
+  const quiet = o.quiet === undefined ? 2 : Math.max(0, Number(o.quiet) || 0);
   const n = data.size;
+  const total = n + quiet * 2;
   const cells = [];
   for (let y = 0; y < n; y++) {
     let run = 0;
     for (let x = 0; x <= n; x++) {
       const dark = x < n && data.rows[y][x] === 1;
       if (dark) { run++; continue; }
-      if (run) cells.push(`<rect x="${x - run}" y="${y}" width="${run}" height="1"/>`);
+      if (run) cells.push(`<rect x="${x - run + quiet}" y="${y + quiet}" width="${run}" height="1"/>`);
       run = 0;
     }
   }
-  return `<svg viewBox="0 0 ${n} ${n}" style="width:100%;height:100%" shape-rendering="crispEdges" data-qr="${escapeAttr(value)}" data-qr-version="${data.version}" data-qr-ecc="${data.ecc}">`
-    + `<rect width="${n}" height="${n}" fill="#fff"/>`
-    + `<g transform="translate(${quiet},${quiet}) scale(${(n - quiet * 2) / n})" fill="#000">${cells.join('')}</g>`
+  return `<svg viewBox="0 0 ${total} ${total}" style="width:100%;height:100%" shape-rendering="crispEdges" data-qr="${escapeAttr(value)}" data-qr-version="${data.version}" data-qr-ecc="${data.ecc}" data-qr-quiet="${quiet}" data-qr-size="${n}">`
+    + `<rect width="${total}" height="${total}" fill="#fff"/>`
+    + `<g fill="#000">${cells.join('')}</g>`
     + `</svg>`;
 }
 

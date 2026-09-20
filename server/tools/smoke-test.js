@@ -617,11 +617,18 @@ async function testScan() {
   if (qrTagFull) {
     const content = qrTagFull[1];
     const body = qrTagFull[2];
-    const n = Number((qrTagFull[0].match(/viewBox="0 0 (\d+)/) || [])[1]);
+    const quiet = Number((qrTagFull[0].match(/data-qr-quiet="(\d+)"/) || [])[1] || 0);
+    const n = Number((qrTagFull[0].match(/data-qr-size="(\d+)"/) || [])[1]) || Number((qrTagFull[0].match(/viewBox="0 0 (\d+)/) || [])[1]) - quiet * 2;
     const grid = Array.from({ length: n }, () => new Array(n).fill(0));
     const re = /<rect x="(\d+)" y="(\d+)" width="(\d+)" height="1"\/>/g;
     let m;
-    while ((m = re.exec(body))) for (let i = 0; i < Number(m[3]); i++) grid[Number(m[2])][Number(m[1]) + i] = 1;
+    while ((m = re.exec(body))) {
+      const gy = Number(m[2]) - quiet;
+      for (let i = 0; i < Number(m[3]); i++) {
+        const gx = Number(m[1]) - quiet + i;
+        if (gy >= 0 && gy < n && gx >= 0 && gx < n) grid[gy][gx] = 1;
+      }
+    }
     const expected = qrLib.matrix(content, { ecc: 'Q' }).rows;
     matrixMatch = expected.length === n && expected.every((row, y) => row.every((v, x) => v === grid[y][x]));
   }
