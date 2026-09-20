@@ -283,7 +283,7 @@ Xác thực bằng cookie `ams_token` (HttpOnly) hoặc header `Authorization: B
 
 | Nhóm | Đường dẫn |
 |---|---|
-| Xác thực | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/change-password` |
+| Xác thực & Hồ sơ | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `GET|PUT /api/auth/profile`, `POST /api/auth/change-password` |
 | Metadata | `GET /api/meta`, `GET /api/lookups/:collection`, `GET /api/settings`, `PUT /api/settings`, `GET /api/numbering/preview/:entity` |
 | Bảng điều khiển | `GET /api/dashboard/summary`, `GET /api/dashboard/analytics?groupBy=&metric=` |
 | CRUD dùng chung | `GET|POST /api/entities/:entity`, `GET|PUT|PATCH|DELETE /api/entities/:entity/:id`, `GET /api/entities/:entity/trash`, `POST /api/entities/:entity/:id/restore`, `GET /api/entities/:entity/export.csv`, `POST /api/entities/:entity/import` |

@@ -240,6 +240,43 @@ function handleChangePassword(ctx) {
   ok(res, { success: true, message: 'Đổi mật khẩu thành công' });
 }
 
+function handleGetProfile(ctx) {
+  const { res, user } = ctx;
+  const raw = store.find('users', user.id);
+  if (!raw) return fail(res, 404, 'Không tìm thấy thông tin tài khoản');
+  const data = service.decorate('users', raw);
+  const related = {
+    assets: store.filter('assets', (a) => String(a.assigneeId) === String(user.id) && !a.isDeleted).map((a) => service.decorateAsset(a)),
+    sessions: store.filter('sessions', (s) => String(s.userId) === String(user.id)).slice(-20).reverse(),
+    logs: store.filter('audit_logs', (l) => String(l.userId) === String(user.id)).slice(-20).reverse(),
+  };
+  ok(res, data, { related });
+}
+
+function handleUpdateProfile(ctx) {
+  const { res, body, user, req } = ctx;
+  const before = store.find('users', user.id);
+  if (!before) return fail(res, 404, 'Không tìm thấy thông tin tài khoản');
+  const patch = {};
+  if (body.fullName !== undefined && String(body.fullName).trim()) patch.fullName = String(body.fullName).trim();
+  if (body.phone !== undefined) patch.phone = String(body.phone).trim();
+  if (body.email !== undefined) patch.email = String(body.email).trim();
+  if (body.avatar !== undefined) patch.avatar = String(body.avatar).trim();
+  if (body.note !== undefined) patch.note = String(body.note).trim();
+
+  store.update('users', user.id, patch);
+  const updated = service.decorate('users', store.find('users', user.id));
+  service.audit('UPDATE', 'users', {
+    username: user.username,
+    userId: user.id,
+    entityId: user.id,
+    entityLabel: 'Cập nhật thông tin cá nhân',
+    changes: patch,
+    ip: clientIp(req),
+  });
+  ok(res, updated, { message: 'Cập nhật thông tin cá nhân thành công' });
+}
+
 /* ============================ METADATA ============================ */
 
 function publicSettings() {
@@ -546,11 +583,12 @@ function dataScopeFilter(user, entityName, ctx) {
 }
 
 function handleGetEntity(ctx) {
-  const { res, params } = ctx;
+  const { res, params, user } = ctx;
   const entityName = params.entity;
   const entity = requireEntity(entityName, res);
   if (!entity) return;
-  if (!checkPermission(ctx, permModuleFor(entityName, entity), 'view', res)) return;
+  const isSelf = entityName === 'users' && user && String(params.id) === String(user.id);
+  if (!isSelf && !checkPermission(ctx, permModuleFor(entityName, entity), 'view', res)) return;
   const raw = store.find(entityName, params.id);
   if (!raw) return fail(res, 404, `${entity.singular} không tồn tại`);
   const data = service.decorate(entityName, raw);
@@ -621,12 +659,21 @@ async function handleUpdateEntity(ctx) {
   const entity = requireEntity(entityName, res);
   if (!entity) return;
   if (entity.readonly) return fail(res, 400, 'Thực thể này chỉ cho phép xem');
-  if (!checkPermission(ctx, permModuleFor(entityName, entity), 'update', res)) return;
+  const isSelf = entityName === 'users' && user && String(params.id) === String(user.id);
+  const isAdminOrPerm = user.isSuperAdmin || auth.can(user, permModuleFor(entityName, entity), 'update');
+  if (!isSelf && !isAdminOrPerm) return sendError(res, 403, `Bạn không có quyền "update" trên module "${permModuleFor(entityName, entity)}"`);
 
   const before = store.find(entityName, params.id);
   if (!before) return fail(res, 404, `${entity.singular} không tồn tại`);
 
   let payload = sanitizePayload(entity, body, false);
+  if (isSelf && !isAdminOrPerm) {
+    const safePayload = {};
+    ['fullName', 'phone', 'email', 'avatar', 'note'].forEach((k) => {
+      if (payload[k] !== undefined) safePayload[k] = payload[k];
+    });
+    payload = safePayload;
+  }
   try {
     payload = applyUpdateHooks(entityName, before, payload, ctx);
   } catch (e) {
@@ -1979,10 +2026,13 @@ function handleRefreshAlerts(ctx) {
 /* ============================ ĐĂNG KÝ ROUTES ============================ */
 
 function register(router) {
-  /* ---- Xác thực ---- */
+  /* ---- Xác thực & Hồ sơ cá nhân ---- */
   router.post('/api/auth/login', handleLogin);
   router.post('/api/auth/logout', handleLogout);
   router.get('/api/auth/me', handleMe);
+  router.get('/api/auth/profile', handleGetProfile);
+  router.put('/api/auth/profile', handleUpdateProfile);
+  router.patch('/api/auth/profile', handleUpdateProfile);
   router.post('/api/auth/change-password', handleChangePassword);
 
   /* ---- Metadata ---- */

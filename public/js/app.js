@@ -476,7 +476,14 @@
         if (!dd.contains(ev.target) && ev.target.id !== 'user-btn') { dd.classList.add('hidden'); document.removeEventListener('mousedown', hide); }
       }), 10);
     };
-    document.querySelectorAll('[data-nav]').forEach((a) => (a.onclick = () => document.getElementById('user-dropdown').classList.add('hidden')));
+    document.querySelectorAll('[data-nav]').forEach((a) => {
+      a.onclick = () => {
+        document.getElementById('user-dropdown').classList.add('hidden');
+        if (a.getAttribute('href') === '#/profile?tab=password' && window.location.hash.startsWith('#/profile')) {
+          Pages.changePasswordDialog();
+        }
+      };
+    });
 
     setupGlobalSearch();
     setupQuickAdd();

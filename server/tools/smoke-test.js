@@ -189,6 +189,28 @@ async function testAuth() {
   const low = await POST('/api/auth/login', { username: 'nhanvien.01', password: 'User@123' }, { jar: '', saveCookie: false });
   check('Đăng nhập tài khoản nhân viên', low.status === 200, 'status=' + low.status);
   const lowCookie = (low.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+  const lowUser = low.json.data.user;
+
+  // Kiểm tra hồ sơ cá nhân của nhân viên
+  const lowProf = await GET('/api/auth/profile', { jar: lowCookie });
+  check('Nhân viên tự xem hồ sơ (/api/auth/profile)', lowProf.status === 200 && lowProf.json.data.username === 'nhanvien.01', 'status=' + lowProf.status);
+
+  const lowSelfEnt = await GET('/api/entities/users/' + lowUser.id, { jar: lowCookie });
+  check('Nhân viên tự xem hồ sơ (/api/entities/users/:id)', lowSelfEnt.status === 200 && lowSelfEnt.json.data.id === lowUser.id, 'status=' + lowSelfEnt.status);
+
+  const lowOtherEnt = await GET('/api/entities/users/1', { jar: lowCookie });
+  check('Nhân viên bị chặn khi xem hồ sơ người khác → 403', lowOtherEnt.status === 403, 'status=' + lowOtherEnt.status);
+
+  const lowUpd = await PUT('/api/auth/profile', { phone: '0912345678', note: 'Nhân viên ghi chú' }, { jar: lowCookie });
+  check('Nhân viên tự cập nhật thông tin cá nhân', lowUpd.status === 200 && lowUpd.json.data.phone === '0912345678', 'status=' + lowUpd.status);
+
+  const lowPass = await POST('/api/auth/change-password', { oldPassword: 'User@123', newPassword: 'NewUser@123' }, { jar: lowCookie });
+  check('Nhân viên tự đổi mật khẩu tài khoản', lowPass.status === 200, 'status=' + lowPass.status);
+
+  // Khôi phục lại mật khẩu mặc định
+  const lowRevert = await POST('/api/auth/change-password', { oldPassword: 'NewUser@123', newPassword: 'User@123' }, { jar: lowCookie });
+  check('Khôi phục mật khẩu mặc định nhân viên', lowRevert.status === 200, 'status=' + lowRevert.status);
+
   const denied = await POST('/api/entities/assets', { name: 'Tài sản test quyền' }, { jar: lowCookie });
   check('Nhân viên không được thêm tài sản → 403', denied.status === 403, 'status=' + denied.status);
   const deniedAdmin = await GET('/api/admin/system', { jar: lowCookie });
@@ -866,7 +888,7 @@ async function testAdmin() {
   check('Khôi phục mật khẩu demo cho admin', back.status === 200, 'status=' + back.status);
   const restore = await POST('/api/auth/login', { username: 'admin', password: 'Admin@123' });
   check('Đăng nhập lại bằng Admin@123', restore.status === 200, 'status=' + restore.status);
-  await POST('/api/auth/change-password', { currentPassword: 'Admin@123', newPassword: 'Admin@123' });
+  await POST('/api/auth/change-password', { oldPassword: 'Admin@123', newPassword: 'Admin@123' });
   const victim = (await GET('/api/entities/users?limit=50')).json.data.find((u) => u.id !== adminUser.id && u.status === 'active');
   if (victim) {
     const toggle = await POST('/api/admin/users/' + victim.id + '/toggle-status', {});

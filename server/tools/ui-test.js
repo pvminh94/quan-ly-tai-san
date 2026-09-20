@@ -667,6 +667,58 @@ async function waitFor(fn, timeout, step) {
       if (window.App.state.user) ok('Đăng nhập lại được ngay sau khi đăng xuất', window.App.state.user.fullName);
       else bad('Không đăng nhập lại được sau khi đăng xuất', (doc.getElementById('login-error') || {}).textContent || '');
       if (doc.querySelectorAll('.nav-item').length > 20) ok('Menu được dựng lại đầy đủ sau khi đăng nhập lại', doc.querySelectorAll('.nav-item').length + ' mục');
+
+      // ---- Kiểm thử tài khoản nhân viên: xem profile & đổi mật khẩu ----
+      doc.getElementById('user-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await sleep(150);
+      doc.getElementById('btn-logout').dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+      await sleep(300);
+      const mLogout = doc.querySelectorAll('.modal');
+      if (mLogout.length) mLogout[mLogout.length - 1].querySelector('.modal-foot .btn:last-child').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await sleep(1000);
+
+      doc.getElementById('username').value = 'nhanvien.01';
+      doc.getElementById('password').value = 'User@123';
+      doc.getElementById('login-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+      for (let i = 0; i < 40 && !(window.App && window.App.state.user && window.App.state.user.username === 'nhanvien.01'); i++) await sleep(150);
+      if (window.App && window.App.state.user && window.App.state.user.username === 'nhanvien.01') {
+        ok('Đăng nhập tài khoản nhân viên thành công', window.App.state.user.fullName);
+
+        window.location.hash = '#/profile';
+        const profileRendered = await waitFor(() => {
+          const c = doc.getElementById('content');
+          return c && /Dương Văn Sơn/.test(c.textContent) && c.querySelector('#p-pass');
+        }, 8000);
+        if (profileRendered) ok('Nhân viên xem được trang cá nhân (không bị xoay loading)', 'Dương Văn Sơn');
+        else bad('Nhân viên không tải được trang cá nhân (bị treo/lỗi)');
+
+        const pPassBtn = doc.getElementById('p-pass');
+        if (pPassBtn) {
+          pPassBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+          const passModal = await waitFor(() => {
+            const m = doc.querySelectorAll('.modal');
+            return Array.from(m).find((x) => /Đổi mật khẩu tài khoản/.test(x.textContent));
+          }, 6000);
+          if (passModal && doc.getElementById('cp-old') && doc.getElementById('cp-new')) {
+            ok('Nhân viên mở được hộp thoại đổi mật khẩu từ trang cá nhân');
+            const closeBtn = passModal.querySelector('.modal-foot .btn:first-child') || passModal.querySelector('.icon-btn.x');
+            if (closeBtn) closeBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+          } else bad('Hộp thoại đổi mật khẩu không mở được cho nhân viên');
+        } else bad('Thiếu nút đổi mật khẩu trên trang cá nhân nhân viên');
+
+        // Đăng nhập lại admin để kết thúc sạch
+        doc.getElementById('user-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        await sleep(150);
+        doc.getElementById('btn-logout').dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+        await sleep(300);
+        const mOut2 = doc.querySelectorAll('.modal');
+        if (mOut2.length) mOut2[mOut2.length - 1].querySelector('.modal-foot .btn:last-child').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        await sleep(1000);
+        doc.getElementById('username').value = 'admin';
+        doc.getElementById('password').value = 'Admin@123';
+        doc.getElementById('login-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+        for (let i = 0; i < 40 && !(window.App && window.App.state.user); i++) await sleep(150);
+      } else bad('Không đăng nhập được tài khoản nhân viên');
     }
   } catch (e) { bad('Luồng đăng xuất lỗi', e.message); }
 

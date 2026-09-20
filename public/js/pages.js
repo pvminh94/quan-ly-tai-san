@@ -1218,26 +1218,51 @@
   /* ============================== Trang cá nhân ============================== */
 
   Pages.profile = async function (container) {
-    const me = App.state.user;
-    const res = await API.get(`/api/entities/users/${me.id}`);
-    const row = res.data;
-    const related = (res.meta && res.meta.related) || {};
-    container.innerHTML = pageHead('Trang cá nhân', 'Thông tin tài khoản, tài sản đang quản lý và bảo mật',
-      '<button class="btn" id="p-pass">🔑 Đổi mật khẩu</button>');
+    const me = App.state.user || {};
+    let row = Object.assign({}, me);
+    let related = {};
+
+    container.innerHTML = '<div class="page-loading"><div class="spinner"></div><span>Đang tải thông tin cá nhân…</span></div>';
+
+    try {
+      // Gọi API lấy hồ sơ cá nhân (ưu tiên /api/auth/profile, fallback /api/entities/users/:id)
+      let res;
+      try {
+        res = await API.get('/api/auth/profile');
+      } catch (e) {
+        res = await API.get(`/api/entities/users/${me.id}`);
+      }
+      if (res && res.data) {
+        row = res.data;
+        related = (res.meta && res.meta.related) || {};
+        App.state.user = Object.assign({}, App.state.user, row);
+      }
+    } catch (err) {
+      console.warn('Không thể nạp hồ sơ từ máy chủ, hiển thị thông tin phiên hiện tại:', err);
+    }
+
+    container.innerHTML = pageHead(
+      'Trang cá nhân',
+      'Thông tin tài khoản, tài sản đang quản lý và bảo mật',
+      `<button class="btn" id="p-edit">✏️ Cập nhật thông tin</button>
+       <button class="btn primary" id="p-pass">🔑 Đổi mật khẩu</button>`
+    );
+
     const host = document.createElement('div');
     host.innerHTML = `<div class="detail-grid">
       <div>
         <div class="card mb"><div class="card-head"><h3>Thông tin cá nhân</h3></div><div class="card-body">
           <dl class="info-list">
-            <dt>Họ và tên</dt><dd><b>${U.esc(row.fullName)}</b></dd>
-            <dt>Tên đăng nhập</dt><dd class="mono">${U.esc(row.username)}</dd>
+            <dt>Họ và tên</dt><dd><b>${U.esc(row.fullName || '—')}</b></dd>
+            <dt>Tên đăng nhập</dt><dd class="mono">${U.esc(row.username || '—')}</dd>
             <dt>Mã nhân viên</dt><dd class="mono">${U.esc(row.employeeCode || '—')}</dd>
             <dt>Email</dt><dd>${U.esc(row.email || '—')}</dd>
             <dt>Điện thoại</dt><dd>${U.esc(row.phone || '—')}</dd>
             <dt>Phòng ban</dt><dd>${U.esc(row.departmentName || '—')}</dd>
             <dt>Chức vụ</dt><dd>${U.esc(row.position || '—')}</dd>
             <dt>Vai trò</dt><dd>${U.esc(row.roleName || '')} <span class="badge soft">${U.esc(row.dataScope || '')}</span></dd>
-            <dt>Đăng nhập gần nhất</dt><dd>${U.datetime(row.lastLoginAt)}</dd>
+            <dt>Đăng nhập gần nhất</dt><dd>${row.lastLoginAt ? U.datetime(row.lastLoginAt) : 'Lần đầu đăng nhập'}</dd>
+            ${row.note ? `<dt>Ghi chú</dt><dd>${U.esc(row.note)}</dd>` : ''}
           </dl>
         </div></div>
         <div class="card"><div class="card-head"><h3>Tài sản tôi đang quản lý (${(related.assets || []).length})</h3></div>
@@ -1248,26 +1273,79 @@
       <div>
         <div class="card mb"><div class="card-head"><h3>Quyền hạn của tôi</h3></div><div class="card-body">
           <div class="muted tiny mb">Vai trò <b>${U.esc(row.roleName || '')}</b> cho phép truy cập các phân hệ sau:</div>
-          ${(App.state.enums.permissionModules || []).filter((mod) => App.can(mod.key, 'view')).map((mod) => `<div class="row between" style="padding:4px 0;border-bottom:1px dashed var(--border)"><span>${U.esc(mod.label)}</span><span class="tiny muted">${['view', 'create', 'update', 'delete', 'approve', 'export'].filter((a) => App.can(mod.key, a)).join(', ')}</span></div>`).join('')}
+          ${(App.state.enums.permissionModules || []).filter((mod) => App.can(mod.key, 'view')).map((mod) => `<div class="row between" style="padding:4px 0;border-bottom:1px dashed var(--border)"><span>${U.esc(mod.label)}</span><span class="tiny muted">${['view', 'create', 'update', 'delete', 'approve', 'export'].filter((a) => App.can(mod.key, a)).join(', ')}</span></div>`).join('') || '<div class="muted tiny">Chỉ có quyền xem thông tin cơ bản</div>'}
         </div></div>
         <div class="card"><div class="card-head"><h3>Phiên đăng nhập gần đây</h3></div><div class="card-body">
-          ${(related.sessions || []).slice(0, 5).map((s) => `<div class="timeline-item"><div class="tt">${U.esc(s.ip || '')} ${s.revokedAt ? '<span class="badge soft">đã thu hồi</span>' : '<span class="badge" style="background:#dcfce7;color:#15803d">đang hoạt động</span>'}</div><div class="tm">${U.datetime(s.createdAt)} • ${U.esc(String(s.userAgent || '').slice(0, 60))}</div></div>`).join('') || '<div class="muted tiny">Không có dữ liệu</div>'}
+          ${(related.sessions || []).slice(0, 5).map((s) => `<div class="timeline-item"><div class="tt">${U.esc(s.ip || '')} ${s.revokedAt ? '<span class="badge soft">đã thu hồi</span>' : '<span class="badge" style="background:#dcfce7;color:#15803d">đang hoạt động</span>'}</div><div class="tm">${U.datetime(s.createdAt)} • ${U.esc(String(s.userAgent || '').slice(0, 60))}</div></div>`).join('') || '<div class="muted tiny">Không có dữ liệu phiên cũ</div>'}
         </div></div>
       </div>
     </div>`;
     container.appendChild(host);
+
+    const editBtn = container.querySelector('#p-edit');
+    if (editBtn) editBtn.onclick = () => Pages.editProfileDialog(row, () => Pages.profile(container));
+
     const passBtn = container.querySelector('#p-pass');
     if (passBtn) passBtn.onclick = Pages.changePasswordDialog;
     if (App.state.route.query.tab === 'password') Pages.changePasswordDialog();
   };
 
+  Pages.editProfileDialog = function (user, onSaved) {
+    const u = user || App.state.user || {};
+    const m = UI.modal({
+      size: 'sm',
+      title: '✏️ Cập nhật thông tin cá nhân',
+      body: `
+        <div class="field"><label>Họ và tên</label><input type="text" id="ep-name" value="${U.esc(u.fullName || '')}" required/></div>
+        <div class="field"><label>Số điện thoại</label><input type="tel" id="ep-phone" value="${U.esc(u.phone || '')}" placeholder="0901234567"/></div>
+        <div class="field"><label>Email</label><input type="email" id="ep-email" value="${U.esc(u.email || '')}" placeholder="email@congty.vn"/></div>
+        <div class="field"><label>Ghi chú</label><textarea id="ep-note" rows="2" placeholder="Ghi chú cá nhân">${U.esc(u.note || '')}</textarea></div>
+        <div id="ep-err"></div>
+      `,
+      footer: [
+        { label: 'Huỷ', onClick: (mm) => mm.close() },
+        { label: '💾 Lưu thay đổi', cls: 'primary', onClick: async (mm) => {
+          const fullName = mm.body.querySelector('#ep-name').value.trim();
+          const phone = mm.body.querySelector('#ep-phone').value.trim();
+          const email = mm.body.querySelector('#ep-email').value.trim();
+          const note = mm.body.querySelector('#ep-note').value.trim();
+          const err = mm.body.querySelector('#ep-err');
+          if (!fullName) { err.innerHTML = '<div class="alert danger">Vui lòng nhập họ và tên</div>'; return; }
+          UI.loading(true, 'Đang lưu thông tin…');
+          try {
+            let res;
+            try {
+              res = await API.put('/api/auth/profile', { fullName, phone, email, note });
+            } catch (e) {
+              res = await API.put(`/api/entities/users/${u.id}`, { fullName, phone, email, note });
+            }
+            UI.loading(false);
+            mm.close();
+            UI.toast('Đã cập nhật', 'Thông tin cá nhân đã được lưu thành công', 'success');
+            if (App.state.user) {
+              App.state.user.fullName = fullName;
+              App.state.user.phone = phone;
+              App.state.user.email = email;
+              const unEl = document.getElementById('user-name');
+              if (unEl) unEl.textContent = fullName;
+            }
+            if (typeof onSaved === 'function') onSaved();
+          } catch (e) {
+            UI.loading(false);
+            err.innerHTML = `<div class="alert danger">${U.esc(e.message)}</div>`;
+          }
+        } },
+      ],
+    });
+  };
+
   Pages.changePasswordDialog = function () {
     const m = UI.modal({
       size: 'sm',
-      title: 'Đổi mật khẩu',
-      body: `<div class="field"><label>Mật khẩu hiện tại</label><input type="password" id="cp-old"/></div>
-             <div class="field"><label>Mật khẩu mới</label><input type="password" id="cp-new"/><div class="hint">Tối thiểu 6 ký tự, gồm chữ và số.</div></div>
-             <div class="field"><label>Xác nhận mật khẩu mới</label><input type="password" id="cp-confirm"/></div>
+      title: '🔑 Đổi mật khẩu tài khoản',
+      body: `<div class="field"><label>Mật khẩu hiện tại</label><input type="password" id="cp-old" autocomplete="current-password"/></div>
+             <div class="field"><label>Mật khẩu mới</label><input type="password" id="cp-new" autocomplete="new-password"/><div class="hint">Tối thiểu 6 ký tự, gồm chữ và số.</div></div>
+             <div class="field"><label>Xác nhận mật khẩu mới</label><input type="password" id="cp-confirm" autocomplete="new-password"/></div>
              <div id="cp-err"></div>`,
       footer: [
         { label: 'Huỷ', onClick: (mm) => mm.close() },
@@ -1276,12 +1354,21 @@
           const newP = mm.body.querySelector('#cp-new').value;
           const conf = mm.body.querySelector('#cp-confirm').value;
           const err = mm.body.querySelector('#cp-err');
+          if (!oldP) { err.innerHTML = '<div class="alert danger">Vui lòng nhập mật khẩu hiện tại</div>'; return; }
+          if (!newP) { err.innerHTML = '<div class="alert danger">Vui lòng nhập mật khẩu mới</div>'; return; }
+          if (newP.length < 6) { err.innerHTML = '<div class="alert danger">Mật khẩu mới tối thiểu 6 ký tự</div>'; return; }
           if (newP !== conf) { err.innerHTML = '<div class="alert danger">Mật khẩu xác nhận không khớp</div>'; return; }
           UI.loading(true, 'Đang cập nhật…');
           try {
             await API.post('/api/auth/change-password', { oldPassword: oldP, newPassword: newP });
-            UI.loading(false); mm.close(); UI.toast('Đổi mật khẩu thành công', '', 'success');
-          } catch (e) { UI.loading(false); err.innerHTML = `<div class="alert danger">${U.esc(e.message)}</div>`; }
+            UI.loading(false);
+            mm.close();
+            UI.toast('Đổi mật khẩu thành công', 'Mật khẩu mới của bạn đã có hiệu lực', 'success');
+            if (App.state.user) App.state.user.mustChangePassword = false;
+          } catch (e) {
+            UI.loading(false);
+            err.innerHTML = `<div class="alert danger">${U.esc(e.message)}</div>`;
+          }
         } },
       ],
     });
