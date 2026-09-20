@@ -1032,6 +1032,7 @@ function run(opts) {
     assets.slice(0, count).forEach((a, idx) => {
       const r = rnd();
       const result = r < 0.82 ? 'match' : r < 0.88 ? 'wrong_location' : r < 0.93 ? 'missing' : r < 0.97 ? 'damaged' : 'extra';
+      const counted = closed ? true : rnd() < 0.55;
       store.insert('stocktake_items', {
         stocktakeId: s.id,
         assetId: a.id,
@@ -1043,7 +1044,9 @@ function run(opts) {
         locationName: result === 'wrong_location' ? pick(store.all('locations')).name : service.nameOf('locations', a.locationId),
         assigneeId: a.assigneeId,
         assigneeName: service.nameOf('users', a.assigneeId, 'fullName'),
-        counted: closed ? true : rnd() < 0.55,
+        bookQty: Number(a.quantity) || 1,
+        countedQty: counted ? (result === 'missing' ? 0 : Number(a.quantity) || 1) : null,
+        counted,
         result,
         conditionFound: result === 'damaged' ? 'broken' : a.condition,
         countedBy: userByUsername['thukho'].id,
@@ -1146,28 +1149,34 @@ function run(opts) {
     });
   });
 
-  // Thêm 1 mẫu "tem tài sản" in nhãn
+  // Mẫu "tem tài sản": mỗi dòng một tem có mã QR + mã vạch Code128 quét được
   const labelDesign = reports.blankDesign({ paperSize: 'A4', orientation: 'portrait', title: 'TEM TÀI SẢN' });
   labelDesign.bands.reportTitle = {
-    height: 14,
-    elements: [{ id: 'lt', type: 'text', x: 0, y: 2, w: 186, h: 8, text: 'DANH SÁCH TEM TÀI SẢN (CẮT THEO ĐƯỜNG KẺ)', fontSize: 13, bold: true, align: 'center', uppercase: true }],
+    height: 13,
+    elements: [{ id: 'lt', type: 'text', x: 0, y: 1, w: 186, h: 9, text: 'DANH SÁCH TEM TÀI SẢN (CẮT THEO ĐƯỜNG KẺ)', fontSize: 13, bold: true, align: 'center', uppercase: true }],
   };
   labelDesign.bands.columnHeader = {
     height: 6,
     elements: [
-      { id: 'lc1', type: 'field', x: 0, y: 0, w: 40, h: 6, field: 'code', label: 'Mã tài sản', bold: true, fontSize: 9, align: 'center', border: true, bgColor: '#e0e7ff' },
-      { id: 'lc2', type: 'field', x: 40, y: 0, w: 86, h: 6, field: 'name', label: 'Tên tài sản', bold: true, fontSize: 9, align: 'center', border: true, bgColor: '#e0e7ff' },
-      { id: 'lc3', type: 'field', x: 126, y: 0, w: 30, h: 6, field: 'departmentName', label: 'Bộ phận', bold: true, fontSize: 9, align: 'center', border: true, bgColor: '#e0e7ff' },
-      { id: 'lc4', type: 'field', x: 156, y: 0, w: 30, h: 6, field: 'assigneeName', label: 'Người sử dụng', bold: true, fontSize: 9, align: 'center', border: true, bgColor: '#e0e7ff' },
+      { id: 'lc1', type: 'text', x: 0, y: 0, w: 100, h: 6, text: '{company.shortName} — Mã QR quét bằng điện thoại để mở hồ sơ tài sản', fontSize: 8, italic: true, valign: 'middle' },
+      { id: 'lc2', type: 'text', x: 100, y: 0, w: 86, h: 6, text: 'Tem số: {rowIndex} • Ngày in: {date}', fontSize: 8, italic: true, align: 'right', valign: 'middle' },
     ],
   };
   labelDesign.bands.detail = {
-    height: 14,
+    height: 36,
     elements: [
-      { id: 'ld1', type: 'field', x: 0, y: 0, w: 40, h: 14, field: 'code', fontSize: 13, bold: true, align: 'center', border: true, valign: 'middle' },
-      { id: 'ld2', type: 'field', x: 40, y: 0, w: 86, h: 14, field: 'name', fontSize: 9.5, align: 'left', border: true, wrap: true },
-      { id: 'ld3', type: 'text', x: 126, y: 0, w: 30, h: 14, text: '{rowIndex}', fontSize: 8, align: 'center', border: true },
-      { id: 'ld4', type: 'field', x: 156, y: 0, w: 30, h: 14, field: 'departmentName', fontSize: 8.5, align: 'center', border: true, wrap: true },
+      { id: 'lb0', type: 'text', x: 0, y: 0, w: 186, h: 34, text: '', border: true },
+      { id: 'ld1', type: 'text', x: 3, y: 2, w: 78, h: 5, text: 'MÃ TÀI SẢN', fontSize: 7.5, color: '#475569' },
+      { id: 'ld2', type: 'field', x: 3, y: 7, w: 78, h: 10, field: 'code', fontSize: 15, bold: true, align: 'left' },
+      { id: 'ld3', type: 'field', x: 3, y: 17, w: 78, h: 9, field: 'name', fontSize: 9.5, bold: false, wrap: true },
+      { id: 'ld4', type: 'text', x: 3, y: 26, w: 78, h: 4.5, text: 'Danh mục: {categoryName}', fontSize: 8, color: '#475569' },
+      { id: 'ld5', type: 'text', x: 3, y: 30.5, w: 78, h: 4.5, text: 'Bộ phận: {departmentName} • Người SD: {assigneeName}', fontSize: 8, color: '#475569' },
+      { id: 'lb1', type: 'barcode', x: 84, y: 3, w: 62, h: 13, field: 'code' },
+      { id: 'lb2', type: 'text', x: 84, y: 16, w: 62, h: 4.5, text: '{code}', fontSize: 9, align: 'center', fontFamily: 'monospace' },
+      { id: 'ld6', type: 'text', x: 84, y: 22, w: 62, h: 4.5, text: 'Số lượng: {quantity} {unit}', fontSize: 8, color: '#475569' },
+      { id: 'ld7', type: 'text', x: 84, y: 26.5, w: 62, h: 4.5, text: 'SL kiểm kê: ............  Ngày: __/__/____', fontSize: 8, color: '#64748b' },
+      { id: 'lq1', type: 'qrcode', x: 150, y: 2, w: 34, h: 30, text: 'ams://asset/{code}', ecc: 'Q', quiet: 1 },
+      { id: 'lq2', type: 'text', x: 150, y: 32, w: 34, h: 4, text: 'Quét để kiểm kê', fontSize: 7, align: 'center', color: '#64748b' },
     ],
   };
   labelDesign.groups = [];
@@ -1175,8 +1184,8 @@ function run(opts) {
   labelDesign.bands.reportFooter = { height: 10, elements: [{ id: 'lf', type: 'text', x: 0, y: 2, w: 186, h: 6, text: 'Tổng số tem: {COUNT()} — Ngày in: {date}', fontSize: 9, align: 'right', italic: true }] };
   store.insert('report_templates', {
     code: 'MBC-009',
-    name: 'Tem/Thẻ tài sản (in hàng loạt)',
-    description: 'Mẫu in tem dán tài sản khổ A4, mỗi dòng một tem gồm mã, tên, bộ phận quản lý.',
+    name: 'Tem/Thẻ tài sản có mã QR (in hàng loạt)',
+    description: 'Mẫu in tem dán tài sản khổ A4 — mỗi tem có mã QR (ams://asset/<mã>) và mã vạch Code128 quét được bằng điện thoại để kiểm kê nhanh.',
     dataset: 'assets',
     design: labelDesign,
     paperSize: 'A4',

@@ -328,6 +328,11 @@
       App.state.route = route;
       const content = document.getElementById('content');
       if (!content) return;
+      // Dọn tài nguyên của trang trước (ví dụ tắt camera ở trang quét mã)
+      if (window.Pages && typeof window.Pages._scanCleanup === 'function') {
+        try { window.Pages._scanCleanup(); } catch (e) { /* bỏ qua */ }
+        window.Pages._scanCleanup = null;
+      }
       const scrollTop = window.scrollY;
       if (!route.handler) {
         content.innerHTML = `<div class="card"><div class="empty"><div class="icon">🧭</div><h3>Không tìm thấy trang: ${U.esc(route.path)}</h3><p>Đường dẫn không tồn tại hoặc bạn không có quyền truy cập.</p><a class="btn primary" href="#/dashboard">Về bảng điều khiển</a></div></div>`;

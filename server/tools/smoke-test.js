@@ -16,6 +16,7 @@
 const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
+const qrLib = require(path.join(__dirname, '..', 'lib', 'qr'));
 
 const argv = process.argv.slice(2);
 const grab = (flag, def) => {
@@ -517,8 +518,130 @@ async function testDocuments() {
   }
 }
 
+async function testScan() {
+  section('8. Quét mã QR / mã vạch (kiểm kê nhanh)');
+
+  // -- 8.1 Bộ sinh QR thật (ISO/IEC 18004) --
+  const sizes = [];
+  for (let v = 1; v <= 10; v++) sizes.push(qrLib.matrix('A'.repeat(1), { version: v, ecc: 'L' }).size);
+  check('Bộ sinh QR: kích thước ma trận đúng theo phiên bản 1-10', sizes.join(',') === '21,25,29,33,37,41,45,49,53,57', sizes.join(','));
+  const eccLevels = ['L', 'M', 'Q', 'H'].map((e) => qrLib.matrix('TS-2026-00001', { ecc: e, version: 2 }).ecc);
+  check('Bộ sinh QR: hỗ trợ đủ 4 mức sửa lỗi L/M/Q/H', eccLevels.join('') === 'LMQH', eccLevels.join('/'));
+  const fallback = qrLib.matrix('X'.repeat(200), { ecc: 'H' });
+  check('Bộ sinh QR: tự hạ mức sửa lỗi khi dữ liệu quá dài', fallback.ecc !== 'H' && fallback.version <= 10, 'mức ' + fallback.ecc + ', phiên bản ' + fallback.version);
+  let tooLong = false;
+  try { qrLib.matrix('X'.repeat(3000), { ecc: 'L' }); } catch (e) { tooLong = /quá dài/i.test(e.message); }
+  check('Bộ sinh QR: báo lỗi rõ ràng khi nội dung vượt dung lượng', tooLong);
+  const qrSvg = qrLib.svg('TS-2026-00001', { ecc: 'Q' });
+  check('Bộ sinh QR: xuất SVG hợp lệ có lề trắng', /^<svg/.test(qrSvg) && /viewBox/.test(qrSvg) && /<path|<rect/.test(qrSvg), Math.round(qrSvg.length / 1024) + ' KB');
+
+  // -- 8.2 Tra cứu mã quét --
+  const anyAsset = (await GET('/api/entities/assets?limit=1')).json.data[0];
+  const lookCode = await GET('/api/scan/lookup?code=' + encodeURIComponent(anyAsset.code));
+  check('Tra cứu mã quét theo mã tài sản', lookCode.status === 200 && lookCode.json.data.asset && lookCode.json.data.asset.id === anyAsset.id, 'khớp theo ' + (lookCode.json.data || {}).matchedBy);
+  const lookUrl = await GET('/api/scan/lookup?code=' + encodeURIComponent('ams://asset/' + anyAsset.code));
+  check('Tra cứu mã quét theo liên kết QR in trên tem', lookUrl.status === 200 && (lookUrl.json.data.asset || {}).code === anyAsset.code, 'ams://asset/' + anyAsset.code);
+  const serialAsset = (await GET('/api/entities/assets?limit=60')).json.data.find((a) => a.serial);
+  if (serialAsset) {
+    const lookSerial = await GET('/api/scan/lookup?code=' + encodeURIComponent(serialAsset.serial));
+    check('Tra cứu mã quét theo số sê-ri', lookSerial.status === 200 && (lookSerial.json.data.asset || {}).id === serialAsset.id, serialAsset.serial + ' → khớp theo ' + (lookSerial.json.data || {}).matchedBy);
+  }
+  const lookMissing = await GET('/api/scan/lookup?code=KHONG-CO-TON-TAI-9999');
+  check('Tra cứu mã lạ trả về rỗng (không lỗi)', lookMissing.status === 200 && lookMissing.json.data.asset === null && lookMissing.json.meta.found === false);
+  const lookNoCode = await GET('/api/scan/lookup');
+  check('Tra cứu thiếu tham số code bị từ chối', lookNoCode.status === 422, 'status=' + lookNoCode.status);
+
+  // -- 8.3 Ghi nhận kiểm kê bằng quét mã --
+  const skCategories = (await GET('/api/entities/categories?limit=50')).json.data;
+  const skCat = skCategories[0];
+  const skCreate = await POST('/api/entities/stocktakes', {
+    name: 'Kiểm kê quét mã E2E',
+    scope: 'category',
+    categoryId: skCat.id,
+    plannedDate: new Date().toISOString().slice(0, 10),
+    status: 'open',
+    note: 'Đợt kiểm kê tạo bởi kiểm thử quét mã',
+  });
+  const skId = skCreate.json && skCreate.json.data && skCreate.json.data.id;
+  if (skId) created.stocktakes.push(skId);
+  check('Tạo đợt kiểm kê cho luồng quét mã', skCreate.status === 200 || skCreate.status === 201, 'id=' + skId);
+  const skGen = await POST('/api/stocktakes/' + skId + '/generate-items', {});
+  check('Sinh danh sách tài sản cần kiểm kê', (skGen.json.data || []).length > 0, (skGen.json.data || []).length + ' dòng');
+  const skItem = (skGen.json.data || [])[0];
+  const before = await GET('/api/entities/stocktakes/' + skId);
+  const beforeCounted = (before.json.data || {}).countedItems || 0;
+
+  const scanCount = await POST('/api/scan/count', { stocktakeId: skId, code: skItem.assetCode, result: 'match', countedQty: 1, note: 'Quét kiểm thử' });
+  check('Quét mã ghi nhận kiểm kê (khớp)', scanCount.status === 200 && scanCount.json.data.item.counted === true, scanCount.json.data && scanCount.json.data.item.assetCode);
+  check('Quét mã trả về tiến độ đợt kiểm kê', !!scanCount.json.data.stocktake && scanCount.json.data.stocktake.countedItems === beforeCounted + 1, JSON.stringify(scanCount.json.data.stocktake));
+  check('Số lượng kiểm kê thực tế được ghi nhận', scanCount.json.data.item.countedQty === 1, 'SL = ' + scanCount.json.data.item.countedQty);
+
+  const assetBefore = (await GET('/api/entities/assets/' + skItem.assetId)).json.data;
+  const scanAgain = await POST('/api/scan/count', { stocktakeId: skId, code: 'ams://asset/' + skItem.assetCode, result: 'damaged', note: 'Quét lại bằng mã QR' });
+  check('Quét lại cùng tài sản cập nhật kết quả (không tạo trùng)', scanAgain.status === 200 && scanAgain.json.data.createdItem === false && scanAgain.json.data.item.result === 'damaged', 'kết quả: ' + (scanAgain.json.data.item || {}).result);
+  const afterItems = await GET('/api/entities/stocktake_items?filter%5BstocktakeId%5D=' + skId + '&limit=500');
+  const dupItems = (afterItems.json.data || []).filter((i) => String(i.assetId) === String(skItem.assetId));
+  check('Không sinh dòng kiểm kê trùng cho cùng tài sản', dupItems.length === 1, dupItems.length + ' dòng');
+  // trả trạng thái/tình trạng tài sản về đúng như trước (quét "hư hỏng" có cập nhật tài sản)
+  await POST('/api/entities/assets/' + skItem.assetId, { status: assetBefore.status, condition: assetBefore.condition });
+
+  // tài sản ngoài phạm vi đợt kiểm kê -> tự thêm vào với kết quả "phát hiện thêm"
+  const otherCat = skCategories.find((c) => String(c.id) !== String(skCat.id));
+  const outsideAsset = (await GET('/api/entities/assets?filter%5BcategoryId%5D=' + otherCat.id + '&limit=1')).json.data[0];
+  const scanExtra = await POST('/api/scan/count', { stocktakeId: skId, code: outsideAsset.code, result: 'extra' });
+  check('Quét tài sản ngoài danh sách → ghi nhận "phát hiện thêm"', scanExtra.status === 200 && scanExtra.json.data.createdItem === true && scanExtra.json.data.item.result === 'extra', outsideAsset.code);
+
+  const hist2 = await GET('/api/scan/history?stocktakeId=' + skId + '&limit=20');
+  check('Lịch sử quét của đợt kiểm kê', hist2.status === 200 && (hist2.json.data || []).length >= 2, (hist2.json.data || []).length + ' lượt');
+  check('Lịch sử quét có tên người quét', !!(hist2.json.data[0] || {}).countedByName, (hist2.json.data[0] || {}).countedByName);
+
+  const scanBad = await POST('/api/scan/count', { stocktakeId: skId, code: 'KHONG-CO-TON-TAI-9999' });
+  check('Quét mã không tồn tại bị từ chối 404', scanBad.status === 404, scanBad.json.message);
+  const skClose = await POST('/api/stocktakes/' + skId + '/close', {});
+  const scanClosed = await POST('/api/scan/count', { stocktakeId: skId, code: skItem.assetCode });
+  check('Không quét được vào đợt kiểm kê đã chốt', skClose.status === 200 && scanClosed.status === 422, 'status=' + scanClosed.status);
+
+  // -- 8.4 Tem tài sản có mã QR thật & mã vạch Code128 --
+  const labelDoc = await GET('/api/documents/label/' + anyAsset.id, { raw: true });
+  const labelHtml = labelDoc.body.toString();
+  check('Nhãn tem tài sản kết xuất được', labelDoc.status === 200 && labelHtml.length > 3000, Math.round(labelHtml.length / 1024) + ' KB');
+  check('Nhãn tem có mã vạch Code128', /viewBox="0 0 \d+ 100"/.test(labelHtml), ((labelHtml.match(/viewBox="0 0 \d+ 100"/g) || []).length) + ' mã vạch');
+  const qrTag = labelHtml.match(/data-qr="([^"]+)"[^>]*data-qr-version="(\d+)"[^>]*data-qr-ecc="(\w+)"/);
+  check('Nhãn tem có mã QR trỏ tới hồ sơ tài sản', !!qrTag && qrTag[1] === 'ams://asset/' + anyAsset.code, qrTag ? qrTag[1] + ' (v' + qrTag[2] + '-' + qrTag[3] + ')' : 'không thấy mã QR');
+  const labelCopies = await GET('/api/documents/label/' + anyAsset.id + '?copies=4', { raw: true });
+  check('Tham số số nhãn in (?copies=) hoạt động', (labelCopies.body.toString().match(/class="tem"/g) || []).length === 4, (labelCopies.body.toString().match(/class="tem"/g) || []).length + ' nhãn');
+
+  // Ma trận QR nhúng trong tem phải khớp chính xác ma trận do bộ sinh tạo ra
+  const qrTagFull = labelHtml.match(/<svg[^>]*data-qr="([^"]*)"[^>]*>([\s\S]*?)<\/svg>/);
+  let matrixMatch = false;
+  if (qrTagFull) {
+    const content = qrTagFull[1];
+    const body = qrTagFull[2];
+    const n = Number((qrTagFull[0].match(/viewBox="0 0 (\d+)/) || [])[1]);
+    const grid = Array.from({ length: n }, () => new Array(n).fill(0));
+    const re = /<rect x="(\d+)" y="(\d+)" width="(\d+)" height="1"\/>/g;
+    let m;
+    while ((m = re.exec(body))) for (let i = 0; i < Number(m[3]); i++) grid[Number(m[2])][Number(m[1]) + i] = 1;
+    const expected = qrLib.matrix(content, { ecc: 'Q' }).rows;
+    matrixMatch = expected.length === n && expected.every((row, y) => row.every((v, x) => v === grid[y][x]));
+  }
+  check('Ma trận QR trong nhãn tem khớp từng ô với bộ sinh (mã quét được)', matrixMatch);
+
+  // -- 8.5 Mẫu báo cáo "Tem tài sản" có QR + mã vạch --
+  const labelTpl = (await GET('/api/entities/report_templates?limit=50')).json.data.find((t) => t.code === 'MBC-009');
+  check('Mẫu tem tài sản (MBC-009) có phần tử QR và mã vạch', !!labelTpl && JSON.stringify(labelTpl.design).includes('"qrcode"') && JSON.stringify(labelTpl.design).includes('"barcode"'));
+  if (labelTpl) {
+    const labelRender = await POST('/api/reports/render', { templateId: labelTpl.id, format: 'html' }, { raw: true });
+    const lrh = labelRender.body.toString();
+    check('Kết xuất mẫu tem có mã QR thật', labelRender.status === 200 && /data-qr="ams:\/\/asset/.test(lrh), 'mã QR: ' + ((lrh.match(/data-qr="/g) || []).length) + ' • mã vạch: ' + ((lrh.match(/viewBox="0 0 \d+ 100"/g) || []).length));
+  }
+
+}
+
+/* --------------------- Quản trị hệ thống --------------------- */
+
 async function testAdmin() {
-  section('8. Quản trị hệ thống');
+  section('9. Quản trị hệ thống');
   const sys = await GET('/api/admin/system');
   const sd = sys.json.data;
   check('Trạng thái hệ thống', sys.status === 200 && sd.database && sd.app, sd.app.version + ' • ' + sd.database.collections.length + ' bảng');
@@ -592,7 +715,7 @@ async function testAdmin() {
 
 async function cleanup() {
   if (KEEP) return;
-  section('9. Dọn dẹp dữ liệu kiểm thử');
+  section('10. Dọn dẹp dữ liệu kiểm thử');
   let n = 0;
   const hard = async (entity, id) => {
     const r = await DEL('/api/entities/' + entity + '/' + id + '?hard=1');
@@ -637,6 +760,7 @@ async function cleanup() {
     await testDepreciation();
     await testReports();
     await testDocuments();
+    await testScan();
     await testAdmin();
     await cleanup();
   } catch (e) {

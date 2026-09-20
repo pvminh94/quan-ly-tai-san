@@ -213,6 +213,7 @@ async function waitFor(fn, timeout, step) {
     ['#/admin/settings', 'Cấu hình'],
     ['#/admin/backup', 'Sao lưu'],
     ['#/admin/data', 'Công cụ'],
+    ['#/scan', 'Quét'],
     ['#/khong-ton-tai-xyz', 'Không tìm thấy trang'],
   ];
   const errBefore = errors.length;
@@ -347,6 +348,137 @@ async function waitFor(fn, timeout, step) {
       }
     }
   } catch (e) { bad('Luồng xoá qua giao diện lỗi', e.message); }
+
+  // ---- trang quét mã QR/mã vạch (kiểm kê nhanh bằng điện thoại) ----
+  try {
+    window.location.hash = '#/scan';
+    const scanInput = await waitFor(() => doc.getElementById('scan-input'), 12000);
+    if (!scanInput) bad('Trang quét mã không render');
+    else {
+      ok('Trang quét mã render (khung camera + ô nhập mã)');
+      const skOptions = await waitFor(() => {
+        const opts = doc.querySelectorAll('#scan-sk option');
+        return opts.length && opts[0].value ? opts : null;
+      }, 12000);
+      if (skOptions) ok('Nạp danh sách đợt kiểm kê đang mở cho trang quét', skOptions.length + ' đợt');
+      else bad('Không nạp được đợt kiểm kê đang mở');
+
+      const statusWarn = await waitFor(() => /BarcodeDetector/.test(doc.getElementById('scan-status').innerHTML), 8000);
+      if (statusWarn) ok('Cảnh báo dẫn đường khi trình duyệt thiếu bộ đọc mã');
+      else bad('Thiếu cảnh báo khi không có BarcodeDetector');
+
+      const tips = doc.querySelectorAll('#scan-tips [data-try]');
+      if (tips.length) ok('Gợi ý mã tài sản để thử nhanh', tips.length + ' gợi ý');
+      else bad('Không có gợi ý mã tài sản');
+
+      // Chụp trạng thái đợt kiểm kê trước kiểm thử để khôi phục đúng như cũ
+      const skId0 = doc.getElementById('scan-sk') ? doc.getElementById('scan-sk').value : '';
+      const skRes = skId0 ? await apiRequest('GET', '/api/entities/stocktakes/' + skId0) : null;
+      const itemsBefore = (((skRes || {}).json || {}).meta || {}).related || {};
+      const beforeById = {};
+      (itemsBefore.items || []).forEach((i) => { beforeById[String(i.id)] = i; });
+      const freeItem = (itemsBefore.items || []).find((i) => !i.counted && i.assetCode);
+      const touched = [];
+      doc.getElementById('scan-demo').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      const rec1 = await waitFor(() => /Đã ghi nhận/.test(doc.getElementById('scan-result').innerHTML) && doc.querySelector('#scan-result [data-undo]'), 15000);
+      if (rec1) {
+        ok('Quét thử ghi nhận kết quả kiểm kê', (doc.querySelector('#scan-result .scan-asset-code') || {}).textContent || '');
+        const undoId = rec1.dataset ? rec1.dataset.undo : rec1.getAttribute('data-undo');
+        if (undoId) touched.push(undoId);
+      } else bad('Quét thử không ghi nhận được kết quả');
+
+      // Tra cứu mã bằng ô nhập tay (dùng dòng chưa kiểm kê của đợt; ghi nhớ để khôi phục sau)
+      const assetCode = (freeItem && freeItem.assetCode) || 'TS-2026-00010';
+      const assetLookup = await apiRequest('GET', '/api/entities/assets?q=' + assetCode + '&limit=5');
+      const assetBefore = ((assetLookup.json || {}).data || []).find((a) => a.code === assetCode) || null;
+      scanInput.value = assetCode;
+      scanInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+      doc.getElementById('scan-go').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      const found = await waitFor(() => doc.getElementById('scan-result').innerHTML.indexOf(assetCode) >= 0, 15000);
+      if (found) ok('Tra cứu mã tài sản bằng ô nhập tay');
+      else bad('Không tra cứu được mã bằng ô nhập tay');
+
+      const undoBtn = doc.querySelector('#scan-result [data-undo]');
+      if (undoBtn && touched.indexOf(undoBtn.getAttribute('data-undo')) < 0) touched.push(undoBtn.getAttribute('data-undo'));
+      const actBtns = doc.querySelectorAll('#scan-result [data-act]');
+      if (actBtns.length >= 4) ok('Thẻ kết quả có đủ nút ghi nhận kết quả', actBtns.length + ' nút');
+      else bad('Thiếu nút ghi nhận kết quả trong thẻ kết quả', actBtns.length + ' nút');
+
+      // Đổi kết quả sang "Sai vị trí" rồi trả về "Khớp"
+      const wrongBtn = Array.from(actBtns).find((b) => b.getAttribute('data-act') === 'wrong_location');
+      if (wrongBtn) {
+        wrongBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        const wrongOk = await waitFor(() => /Sai vị trí/.test(doc.getElementById('scan-result').innerHTML), 15000);
+        if (wrongOk) ok('Ghi nhận kết quả "Sai vị trí" khi quét');
+        else bad('Không ghi nhận được kết quả sai vị trí');
+      }
+
+      // Lịch sử quét + tiến độ
+      const histRow = await waitFor(() => doc.querySelector('#scan-history-card .scan-history-row'), 10000);
+      if (histRow) ok('Lịch sử quét hiển thị lượt vừa quét');
+      else bad('Lịch sử quét không cập nhật');
+      const progressText = doc.getElementById('scan-progress-card').textContent;
+      if (/đã kiểm kê/.test(progressText) && /còn lại/.test(progressText)) ok('Bảng tiến độ kiểm kê hiển thị đầy đủ số liệu');
+      else bad('Bảng tiến độ thiếu số liệu', progressText.slice(0, 60));
+
+      // Hoàn tác lượt kiểm kê vừa ghi
+      const undoNow = doc.querySelector('#scan-result [data-undo]');
+      const beforeProgress = doc.getElementById('scan-progress-card').textContent;
+      undoNow.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await waitFor(() => doc.querySelector('.modal-overlay'), 6000);
+      const undoConfirm = Array.from(doc.querySelectorAll('.modal-overlay .modal-foot .btn:last-child'));
+      if (undoConfirm.length) {
+        undoConfirm[undoConfirm.length - 1].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        const undone = await waitFor(() => doc.getElementById('scan-progress-card').textContent !== beforeProgress, 12000);
+        if (undone) ok('Hoàn tác lượt kiểm kê vừa quét');
+        else bad('Hoàn tác không cập nhật tiến độ');
+      } else bad('Không hiện hộp thoại xác nhận hoàn tác');
+
+      // Mã không tồn tại
+      scanInput.value = 'MA-KHONG-TON-TAI-9999';
+      scanInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+      doc.getElementById('scan-go').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      const notFound = await waitFor(() => /Không tìm thấy tài sản/.test(doc.getElementById('scan-result').innerHTML), 15000);
+      if (notFound) ok('Cảnh báo khi quét mã không có trong hệ thống');
+      else bad('Không cảnh báo khi mã không tồn tại');
+
+      // Nút in tem QR tại màn hình kiểm kê mở hộp thoại chọn số nhãn
+      if (window.Pages && typeof window.Pages.labelDialog === 'function') {
+        window.Pages.labelDialog({ id: 1, code: 'TS-2026-00001', name: 'Máy tính để bàn Dell' });
+        const modal = await waitFor(() => {
+          const mods = doc.querySelectorAll('.modal');
+          return mods.length ? mods[mods.length - 1] : null;
+        }, 6000);
+        const hasCopies = modal && modal.querySelector('#label-copies');
+        if (hasCopies) ok('Hộp thoại in tem QR có chọn số nhãn');
+        else bad('Hộp thoại in tem thiếu lựa chọn số nhãn');
+        if (modal) {
+          const closeBtn = modal.querySelector('.modal-foot .btn:first-child') || modal.querySelector('.icon-btn.x');
+          if (closeBtn) closeBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        }
+      } else bad('Không có hàm in tem Pages.labelDialog');
+
+      // Dọn dẹp: trả mọi dòng bị kiểm thử chạm về đúng trạng thái trước đó
+      const skId = doc.getElementById('scan-sk') ? doc.getElementById('scan-sk').value : '';
+      for (const itemId of touched) {
+        if (!itemId || itemId === 'undefined' || !skId) continue;
+        const b = beforeById[String(itemId)];
+        if (b && b.counted) {
+          await apiRequest('POST', '/api/stocktakes/' + skId + '/items/' + itemId, {
+            counted: true, result: b.result, countedQty: b.countedQty, conditionFound: b.conditionFound, note: b.note || '',
+          });
+        } else {
+          await apiRequest('POST', '/api/stocktakes/' + skId + '/items/' + itemId, {
+            counted: false, result: (b && b.result) || '', note: (b && b.note) || '',
+          });
+        }
+      }
+      if (assetBefore && assetBefore.locationId) {
+        await apiRequest('POST', '/api/entities/assets/' + assetBefore.id, { locationId: assetBefore.locationId, locationName: assetBefore.locationName });
+      }
+      ok('Dọn dẹp các lượt kiểm kê phát sinh khi kiểm thử', touched.length + ' lượt (đã khôi phục vị trí tài sản)');
+    }
+  } catch (e) { bad('Luồng quét mã lỗi', e.message); }
 
   // ---- đăng xuất (chạy cuối vì sẽ kết thúc phiên) ----
   try {

@@ -312,7 +312,7 @@
       const $ = (s) => container.querySelector(s);
       if ($('#d-print')) $('#d-print').onclick = () => API.openHTML(`/api/documents/${docs[entityName]}/${row.id}`);
       if ($('#d-edit')) $('#d-edit').onclick = () => App.Router.navigate(`/${entityName}/${row.id}/edit`);
-      if ($('#d-label')) $('#d-label').onclick = () => API.openHTML(`/api/documents/label/${row.id}`);
+      if ($('#d-label')) $('#d-label').onclick = () => Pages.labelDialog(row);
       if ($('#d-dep')) $('#d-dep').onclick = () => API.openHTML(`/api/documents/depreciation/${row.id}`);
       if ($('#d-assign')) $('#d-assign').onclick = () => Actions.assignDialog(row, () => App.Router.resolve());
       if ($('#d-transfer')) $('#d-transfer').onclick = () => Actions.transferDialog(row, () => App.Router.resolve());
@@ -713,6 +713,41 @@
 
   /* ============================== Trang kiểm kê (đếm) ============================== */
 
+  /** Hộp thoại in nhãn tem tài sản: chọn số nhãn/trang và xem trước mã QR */
+  Pages.labelDialog = async function (row) {
+    const qr = `<div style="display:flex;gap:14px;align-items:center">
+        <div style="font-size:34px">🏷️</div>
+        <div class="tiny muted">Nhãn tem chứa <b>mã QR</b> (ams://asset/${U.esc(row.code)}) và <b>mã vạch Code128</b> của mã tài sản — quét bằng điện thoại để mở hồ sơ hoặc kiểm kê nhanh.</div>
+      </div>`;
+    const body = `
+      ${qr}
+      <div class="form-grid" style="margin-top:12px">
+        <label><span>Số nhãn in trong trang</span>
+          <select id="label-copies">
+            <option value="2">2 nhãn (khổ lớn)</option>
+            <option value="4">4 nhãn</option>
+            <option value="8" selected>8 nhãn (A4 tiêu chuẩn)</option>
+            <option value="12">12 nhãn</option>
+            <option value="16">16 nhãn</option>
+          </select></label>
+        <label><span>Mã tài sản</span><input type="text" value="${U.attr(row.code)}" readonly/></label>
+      </div>`;
+    UI.modal({
+      title: 'In nhãn tem tài sản',
+      subtitle: row.name,
+      body,
+      footer: [
+        { label: '✕ Đóng', cls: 'ghost', onClick: (m) => m.close() },
+        { label: '📷 Quét mã', cls: '', onClick: (m) => { m.close(); App.Router.navigate('/scan'); } },
+        { label: '🖨 Xem trước & In', cls: 'primary', onClick: (m) => {
+            const copies = m.body.querySelector('#label-copies').value;
+            m.close();
+            API.openHTML(`/api/documents/label/${row.id}?copies=${copies}`);
+          } },
+      ],
+    });
+  };
+
   Pages.stocktakeCount = async function (stocktakeId, container) {
     const res = await API.get(`/api/entities/stocktakes/${stocktakeId}`);
     const stocktake = res.data;
@@ -720,6 +755,8 @@
     container.innerHTML = pageHead('Kiểm kê: ' + stocktake.name,
       `Mã đợt: <b class="mono">${U.esc(stocktake.code)}</b> • ${items.filter((i) => i.counted).length}/${items.length} tài sản đã kiểm kê`,
       `<button class="btn" id="sk-export">⬇ Xuất kết quả</button>
+       <button class="btn" id="sk-label">🏷 In tem QR</button>
+       <a class="btn success" href="#/scan?stocktake=${stocktakeId}">📷 Quét mã kiểm kê</a>
        <button class="btn primary" id="sk-save">💾 Lưu kết quả</button>
        <a class="btn ghost" href="#/stocktakes/${stocktakeId}">← Quay lại</a>`);
 
@@ -803,6 +840,12 @@
       UI.toast('Đã lưu kết quả kiểm kê', `${ok} dòng được cập nhật`, 'success');
     };
     document.getElementById('sk-export').onclick = () => API.openHTML(`/api/documents/stocktake/${stocktakeId}`);
+    const skLabel = document.getElementById('sk-label');
+    if (skLabel) skLabel.onclick = () => {
+      const first = state.items.find((i) => !i.counted) || state.items[0];
+      if (!first) return UI.toast('Không có tài sản', 'Đợt kiểm kê chưa có dòng nào', 'warning');
+      Pages.labelDialog({ id: first.assetId, code: first.assetCode, name: first.assetName });
+    };
     renderTable();
   };
 
@@ -1192,6 +1235,7 @@
     return Pages.entityList('stocktakes', container, {
       extraActions: [
         { label: 'Kiểm kê', icon: '🧮', title: 'Vào màn hình kiểm kê', showIf: (row) => row.status === 'open', onClick: (row) => App.Router.navigate(`/stocktakes/${row.id}/count`) },
+        { label: 'Quét mã QR', icon: '📷', title: 'Quét mã QR/mã vạch để đếm nhanh', showIf: (row) => row.status === 'open', onClick: (row) => App.Router.navigate(`/scan?stocktake=${row.id}`) },
         { label: 'In BB', icon: '🖨', title: 'In biên bản kiểm kê', onClick: (row) => API.openHTML(`/api/documents/stocktake/${row.id}`) },
       ],
     });

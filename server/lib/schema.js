@@ -507,7 +507,7 @@ const ENTITIES = {
     softDelete: false,
     searchFields: ['assetCode', 'assetName', 'note'],
     defaultSort: { field: 'id', order: 'asc' },
-    listFields: ['stocktakeId', 'assetCode', 'assetName', 'locationName', 'expectedLocationName', 'assigneeName', 'counted', 'result', 'conditionFound', 'note'],
+    listFields: ['stocktakeId', 'assetCode', 'assetName', 'locationName', 'expectedLocationName', 'assigneeName', 'bookQty', 'countedQty', 'counted', 'result', 'conditionFound', 'note'],
     fields: {
       stocktakeId: { type: T.REF, label: 'Đợt kiểm kê', ref: 'stocktakes', refLabel: 'code', required: true },
       assetId: { type: T.REF, label: 'Tài sản', ref: 'assets', refLabel: 'code', required: true },
@@ -519,6 +519,8 @@ const ENTITIES = {
       locationName: { type: T.STRING, label: 'Vị trí thực tế (tên)' },
       assigneeId: { type: T.REF, label: 'Người sử dụng (sổ sách)', ref: 'users', refLabel: 'fullName' },
       assigneeName: { type: T.STRING, label: 'Người sử dụng' },
+      bookQty: { type: T.NUMBER, label: 'SL theo sổ sách', default: 1 },
+      countedQty: { type: T.NUMBER, label: 'SL kiểm kê thực tế' },
       counted: { type: T.BOOL, label: 'Đã kiểm kê', default: false },
       result: { type: T.SELECT, label: 'Kết quả', options: [
         { value: 'match', label: 'Khớp', color: '#16a34a' },

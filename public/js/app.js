@@ -95,6 +95,7 @@
       { key: 'transfers', label: 'Điều chuyển', icon: '🔀', href: '#/transfers', perm: 'transfers', badge: 'transfers' },
       { key: 'maintenances', label: 'Bảo trì - Sửa chữa', icon: '🔧', href: '#/maintenances', perm: 'maintenances' },
       { key: 'depreciations', label: 'Khấu hao', icon: '📉', href: '#/depreciations', perm: 'depreciations' },
+      { key: 'scan', label: 'Quét mã kiểm kê', icon: '📷', href: '#/scan', perm: 'stocktakes' },
       { key: 'stocktakes', label: 'Kiểm kê', icon: '🧮', href: '#/stocktakes', perm: 'stocktakes' },
       { key: 'disposals', label: 'Thanh lý', icon: '🗑️', href: '#/disposals', perm: 'disposals', badge: 'disposals' },
       { key: 'warranties', label: 'Bảo hành', icon: '🛡️', href: '#/warranties', perm: 'warranties' },
@@ -165,6 +166,7 @@
     R.add('/assets/:id', (route, c) => Pages.entityDetail('assets', route.params.id, c));
 
     R.add('/depreciations', (route, c) => Pages.depreciationsPage(c));
+    R.add('/scan', (route, c) => Pages.scan ? Pages.scan(c) : Pages.notFound(c));
     R.add('/stocktakes/:id/count', (route, c) => Pages.stocktakeCount(route.params.id, c));
     R.add('/stocktakes', (route, c) => Pages.stocktakesPage(c));
     R.add('/transfers', (route, c) => Pages.transfersPage(c));

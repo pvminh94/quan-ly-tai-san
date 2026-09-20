@@ -505,6 +505,8 @@ function generateStocktakeItems(stocktake, ctx) {
       locationName: service.nameOf('locations', a.locationId),
       assigneeId: a.assigneeId,
       assigneeName: service.nameOf('users', a.assigneeId, 'fullName'),
+      bookQty: Number(a.quantity) || 1,
+      countedQty: null,
       counted: false,
       result: 'match',
       conditionFound: a.condition,
@@ -985,20 +987,26 @@ function handleStocktakeGenerate(ctx) {
   ok(res, items.map((i) => service.decorate('stocktake_items', i)), { total: items.length });
 }
 
-function handleStocktakeItemUpdate(ctx) {
-  const { res, params, body, user } = ctx;
-  const item = store.find('stocktake_items', params.itemId);
-  if (!item) return fail(res, 404, 'Không tìm thấy dòng kiểm kê');
+/** Áp dụng một cập nhật dòng kiểm kê (dùng chung cho sửa tay và quét mã) */
+function applyStocktakeItem(ctx, item, body) {
+  const user = ctx.user;
   const patch = {};
   ['counted', 'result', 'conditionFound', 'locationId', 'note'].forEach((k) => {
     if (body[k] !== undefined) patch[k] = body[k];
   });
   if (patch.locationId) patch.locationName = service.nameOf('locations', patch.locationId);
-  if (patch.counted !== false) {
-    patch.countedBy = user.id;
-    patch.countedAt = new Date().toISOString();
-  }
   patch.counted = patch.counted === undefined ? true : patch.counted;
+  if (patch.counted) {
+    patch.countedBy = user ? user.id : null;
+    patch.countedAt = new Date().toISOString();
+    if (body.countedQty !== undefined) patch.countedQty = Number(body.countedQty) || 0;
+  } else {
+    // Bỏ / hoàn tác lượt kiểm kê: xoá dấu người quét, thời điểm và số lượng thực tế
+    patch.countedBy = null;
+    patch.countedAt = null;
+    patch.countedQty = null;
+    if (body.result === undefined) patch.result = null;
+  }
   store.update('stocktake_items', item.id, patch);
 
   // Cập nhật tài sản thực tế nếu chênh lệch
@@ -1015,7 +1023,14 @@ function handleStocktakeItemUpdate(ctx) {
       diffItems: items.filter((i) => i.counted && i.result && i.result !== 'match').length,
     });
   }
-  ok(res, service.decorate('stocktake_items', store.find('stocktake_items', item.id)));
+  return service.decorate('stocktake_items', store.find('stocktake_items', item.id));
+}
+
+function handleStocktakeItemUpdate(ctx) {
+  const { res, params, body } = ctx;
+  const item = store.find('stocktake_items', params.itemId);
+  if (!item) return fail(res, 404, 'Không tìm thấy dòng kiểm kê');
+  ok(res, applyStocktakeItem(ctx, item, body));
 }
 
 function handleStocktakeClose(ctx) {
@@ -1029,6 +1044,190 @@ function handleStocktakeClose(ctx) {
   store.update('stocktakes', stocktake.id, { status: 'closed', closedAt: new Date().toISOString() });
   service.audit('UPDATE', 'stocktakes', { username: user.username, userId: user.id, entityId: stocktake.id, entityLabel: 'Chốt kiểm kê ' + stocktake.code });
   ok(res, service.decorate('stocktakes', store.find('stocktakes', stocktake.id)));
+}
+
+/* ================== QUÉT MÃ QR / MÃ VẠCH (KIỂM KÊ NHANH) ================== */
+
+/**
+ * Phân tích giá trị quét được thành mã tài sản.
+ * Hỗ trợ: mã tài sản thô (TS-2026-00001), số thứ tự nội bộ, liên kết in trên tem:
+ *   ams://asset/TS-2026-00001
+ *   ams://stocktake/KK-2026-001/asset/12
+ */
+function parseScanCode(raw) {
+  const value = String(raw == null ? '' : raw).trim();
+  const out = { raw: value, code: '', assetId: null, stocktakeCode: '' };
+  if (!value) return out;
+  const scheme = value.match(/^ams:\/\/([^\s]+)$/i);
+  if (scheme) {
+    const parts = scheme[1].split('/').filter(Boolean);
+    const head = String(parts[0] || '').toLowerCase();
+    if (head === 'stocktake' && parts.length >= 2) {
+      out.stocktakeCode = decodeURIComponent(parts[1]);
+      if (parts[2] === 'asset' && parts[3]) out.assetId = Number(parts[3]) || null;
+    } else if (parts[1]) {
+      out.code = decodeURIComponent(parts[1]);
+    } else if (parts[0]) {
+      out.code = decodeURIComponent(parts[0]);
+    }
+  } else {
+    out.code = value;
+  }
+  if (out.code && /^\d+$/.test(out.code)) out.assetId = out.assetId || Number(out.code);
+  return out;
+}
+
+const scanNorm = (v) => String(v == null ? '' : v).trim().toUpperCase().replace(/[\s_]/g, '');
+
+/** Tìm tài sản theo mã quét (mã, số thứ tự, hoặc số sê-ri) */
+function findAssetByScan(parsed) {
+  const live = (a) => a && !a.isDeleted;
+  if (parsed.assetId) {
+    const byId = live(store.find('assets', parsed.assetId)) ? store.find('assets', parsed.assetId) : null;
+    if (byId) return { asset: byId, matchedBy: 'id' };
+  }
+  if (!parsed.code) return { asset: null, matchedBy: '' };
+  const target = scanNorm(parsed.code);
+  const assets = store.filter('assets', live);
+  const exact = assets.find((a) => scanNorm(a.code) === target);
+  if (exact) return { asset: exact, matchedBy: 'code' };
+  const serial = assets.find((a) => a.serial && scanNorm(a.serial) === target);
+  if (serial) return { asset: serial, matchedBy: 'serial' };
+  return { asset: null, matchedBy: '', suggestions: assets.filter((a) => scanNorm(a.code).includes(target) || scanNorm(a.name).includes(target)).slice(0, 5) };
+}
+
+/** Đợt kiểm kê đang mở chứa tài sản (nếu người dùng không chọn đợt cụ thể) */
+function openStocktakeFor(assetId, stocktakeCode) {
+  const open = store.filter('stocktakes', (s) => !s.isDeleted && s.status === 'open');
+  if (stocktakeCode) {
+    const found = store.filter('stocktakes', (s) => !s.isDeleted && scanNorm(s.code) === scanNorm(stocktakeCode))[0];
+    if (found) return found;
+  }
+  const withItem = open.find((s) => store.filter('stocktake_items', (i) => String(i.stocktakeId) === String(s.id) && String(i.assetId) === String(assetId)).length);
+  return withItem || open[0] || null;
+}
+
+function stocktakeProgress(stocktake) {
+  if (!stocktake) return null;
+  const items = store.filter('stocktake_items', (i) => String(i.stocktakeId) === String(stocktake.id));
+  const counted = items.filter((i) => i.counted);
+  return {
+    id: stocktake.id,
+    code: stocktake.code,
+    name: stocktake.name,
+    status: stocktake.status,
+    totalItems: items.length,
+    countedItems: counted.length,
+    remainingItems: items.length - counted.length,
+    diffItems: counted.filter((i) => i.result && i.result !== 'match').length,
+    matchItems: counted.filter((i) => !i.result || i.result === 'match').length,
+    progress: items.length ? Math.round((counted.length / items.length) * 100) : 0,
+  };
+}
+
+/** Tra cứu mã quét: trả về tài sản + dòng kiểm kê tương ứng + tiến độ đợt */
+function handleScanLookup(ctx) {
+  const { res, query } = ctx;
+  const parsed = parseScanCode(query.get('code'));
+  if (!parsed.raw) return fail(res, 422, 'Thiếu tham số code');
+  const found = findAssetByScan(parsed);
+  if (!found.asset) {
+    return ok(res, { parsed, asset: null, suggestions: found.suggestions || [], item: null, stocktake: null, alreadyCounted: false }, { found: false });
+  }
+  const asset = service.decorate('assets', found.asset);
+  const requested = query.get('stocktakeId');
+  const stocktake = requested ? store.find('stocktakes', requested) : openStocktakeFor(asset.id, parsed.stocktakeCode);
+  let item = null;
+  if (stocktake) {
+    const items = store.filter('stocktake_items', (i) => String(i.stocktakeId) === String(stocktake.id) && String(i.assetId) === String(asset.id));
+    item = items[0] ? service.decorate('stocktake_items', items[0]) : null;
+  }
+  ok(res, {
+    parsed,
+    asset,
+    matchedBy: found.matchedBy,
+    item,
+    inStocktakeList: !!item,
+    alreadyCounted: !!(item && item.counted),
+    countedAt: item ? item.countedAt : null,
+    countedByName: item ? item.countedByName : '',
+    stocktake: stocktakeProgress(stocktake),
+  });
+}
+
+/** Ghi nhận một lần quét vào đợt kiểm kê (tạo dòng nếu tài sản ngoài danh sách) */
+function handleScanCount(ctx) {
+  const { res, body } = ctx;
+  const parsed = parseScanCode(body.code);
+  if (!parsed.raw) return fail(res, 422, 'Thiếu mã quét (code)');
+  const found = findAssetByScan(parsed);
+  if (!found.asset) {
+    return fail(res, 404, 'Không tìm thấy tài sản với mã "' + parsed.raw + '". Kiểm tra lại mã in trên tem hoặc tạo tài sản mới.');
+  }
+  const asset = found.asset;
+  let stocktake = body.stocktakeId ? store.find('stocktakes', body.stocktakeId) : openStocktakeFor(asset.id, parsed.stocktakeCode);
+  if (!stocktake) return fail(res, 404, 'Không có đợt kiểm kê nào đang mở. Hãy tạo hoặc mở một đợt kiểm kê trước khi quét.');
+  if (stocktake.status === 'closed') return fail(res, 422, 'Đợt kiểm kê ' + stocktake.code + ' đã chốt, không thể ghi nhận thêm.');
+
+  // Tự sinh danh sách kiểm kê nếu đợt còn trống
+  if (!store.filter('stocktake_items', (i) => String(i.stocktakeId) === String(stocktake.id)).length) {
+    generateStocktakeItems(service.decorate('stocktakes', stocktake), ctx);
+  }
+
+  const items = store.filter('stocktake_items', (i) => String(i.stocktakeId) === String(stocktake.id));
+  let item = items.find((i) => String(i.assetId) === String(asset.id));
+  let created = false;
+  if (!item) {
+    // Tài sản có thật nhưng ngoài danh sách kiểm kê → ghi nhận là phát hiện thêm
+    item = store.insert('stocktake_items', {
+      stocktakeId: stocktake.id,
+      assetId: asset.id,
+      assetCode: asset.code,
+      assetName: asset.name,
+      expectedLocationId: asset.locationId || null,
+      expectedLocationName: asset.locationName || '',
+      locationId: asset.locationId || null,
+      locationName: asset.locationName || '',
+      assigneeId: asset.assigneeId || null,
+      assigneeName: asset.assigneeName || '',
+      bookQty: Number(asset.quantity) || 1,
+      conditionFound: asset.condition,
+      result: body.result || 'extra',
+      note: 'Phát hiện qua quét mã — tài sản ngoài danh sách kiểm kê',
+      counted: true,
+    });
+    created = true;
+  }
+  const payload = Object.assign({}, body);
+  if (created) payload.result = payload.result || 'extra';
+  if (!payload.result) payload.result = item.result || 'match';
+  if (!payload.locationId && payload.result === 'wrong_location') payload.locationId = body.locationId || asset.locationId || null;
+  const updated = applyStocktakeItem(ctx, item, payload);
+  service.audit('UPDATE', 'stocktakes', {
+    username: ctx.user.username, userId: ctx.user.id, entityId: stocktake.id,
+    entityLabel: 'Quét mã ' + asset.code + ' (' + (payload.result || 'match') + ')',
+  });
+  ok(res, {
+    asset: service.decorate('assets', asset),
+    item: updated,
+    createdItem: created,
+    matchedBy: found.matchedBy,
+    stocktake: stocktakeProgress(store.find('stocktakes', stocktake.id)),
+  });
+}
+
+/** Năm lần quét gần nhất của một đợt kiểm kê (hiển thị lại sau khi tải trang) */
+function handleScanHistory(ctx) {
+  const { res, query } = ctx;
+  const stocktake = store.find('stocktakes', query.get('stocktakeId'));
+  if (!stocktake) return fail(res, 404, 'Không tìm thấy đợt kiểm kê');
+  const limit = Math.min(100, Number(query.get('limit')) || 20);
+  const rows = store
+    .filter('stocktake_items', (i) => String(i.stocktakeId) === String(stocktake.id) && i.counted && i.countedAt)
+    .sort((a, b) => String(b.countedAt).localeCompare(String(a.countedAt)))
+    .slice(0, limit)
+    .map((i) => service.decorate('stocktake_items', i));
+  ok(res, rows, { total: rows.length, stocktake: stocktakeProgress(stocktake) });
 }
 
 /* ============================ BÁO CÁO ============================ */
@@ -1408,9 +1607,9 @@ function handleExportSQL(ctx) {
 /* ============================ CHỨNG TỪ IN ============================ */
 
 function handleDocument(ctx) {
-  const { res, params, user } = ctx;
+  const { res, params, user, query } = ctx;
   const { type, id } = params;
-  const html = docs.render(type, id, { user, settings: service.settings() });
+  const html = docs.render(type, id, { user, settings: service.settings(), query });
   if (!html) return fail(res, 404, 'Không tìm thấy chứng từ');
   service.audit('EXPORT', 'documents', { username: user.username, userId: user.id, entityLabel: `In chứng từ ${type} #${id}` });
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1489,6 +1688,9 @@ function register(router) {
   router.post('/api/stocktakes/:id/generate-items', handleStocktakeGenerate);
   router.post('/api/stocktakes/:id/items/:itemId', handleStocktakeItemUpdate);
   router.post('/api/stocktakes/:id/close', handleStocktakeClose);
+  router.get('/api/scan/lookup', handleScanLookup);
+  router.post('/api/scan/count', handleScanCount);
+  router.get('/api/scan/history', handleScanHistory);
 
   router.post('/api/transfers/:id/:action', (ctx) => workflowAction(ctx, 'transfers', 'status', transferActions));
   router.post('/api/disposals/:id/:action', (ctx) => workflowAction(ctx, 'disposals', 'status', disposalActions));

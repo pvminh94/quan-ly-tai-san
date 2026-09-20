@@ -9,6 +9,7 @@
  */
 
 const util = require('./util');
+const qr = require('./qr');
 const zip = require('./zip');
 
 const MM_TO_PX = 3.7795275591;
@@ -483,7 +484,11 @@ function elementHTML(e, ctx) {
       content = code128SVG(String(interpolate(e.text || e.field ? (ctx.row ? getByPath(ctx.row, e.field) : '') : '', ctx) || ''), width, height);
       break;
     case 'qrcode':
-      content = qrSVG(String(interpolate(e.text || '', ctx) || (ctx.row && e.field ? getByPath(ctx.row, e.field) : '')), Math.min(width, height));
+      content = qrSVG(
+        String(interpolate(e.text || '', ctx) || (ctx.row && e.field ? getByPath(ctx.row, e.field) : '')),
+        Math.min(width, height),
+        { ecc: e.ecc || 'Q', quiet: e.quiet }
+      );
       break;
     case 'image': {
       const src = e.text || (e.field && ctx.row ? getByPath(ctx.row, e.field) : '') || (ctx.company && ctx.company.logo) || '';
@@ -543,23 +548,36 @@ function code128SVG(text, width, height) {
   return `<svg viewBox="0 0 ${x} 100" preserveAspectRatio="none" style="width:100%;height:100%">${bars.join('')}</svg>`;
 }
 
-/** QR code: dùng mã ma trận đơn giản dựa trên băm (mang tính minh hoạ in ấn) */
-function qrSVG(text, size) {
-  if (!text) return '';
-  const crypto = require('crypto');
-  const hash = crypto.createHash('sha256').update(String(text)).digest();
-  const n = 21;
-  let cells = [];
-  const bit = (i) => (hash[Math.floor(i / 8) % hash.length] >> (i % 8)) & 1;
+/**
+ * QR code: dùng bộ sinh QR thật (ISO/IEC 18004) trong lib/qr.js — mã quét được
+ * bằng điện thoại. Mức sửa lỗi mặc định Q để in nhãn nhỏ vẫn quét tốt.
+ */
+function qrSVG(text, size, opts) {
+  const o = opts || {};
+  const value = String(text == null ? '' : text);
+  if (!value) return '';
+  let data;
+  try {
+    data = qr.matrix(value, { ecc: o.ecc || 'Q' });
+  } catch (err) {
+    return '';
+  }
+  const quiet = o.quiet === undefined ? 2 : Number(o.quiet) || 0;
+  const n = data.size;
+  const cells = [];
   for (let y = 0; y < n; y++) {
-    for (let x = 0; x < n; x++) {
-      const finder = (x < 7 && y < 7) || (x >= n - 7 && y < 7) || (x < 7 && y >= n - 7);
-      if (finder) continue;
-      if (bit(y * n + x)) cells.push(`<rect x="${x}" y="${y}" width="1" height="1"/>`);
+    let run = 0;
+    for (let x = 0; x <= n; x++) {
+      const dark = x < n && data.rows[y][x] === 1;
+      if (dark) { run++; continue; }
+      if (run) cells.push(`<rect x="${x - run}" y="${y}" width="${run}" height="1"/>`);
+      run = 0;
     }
   }
-  const finder = (ox, oy) => `<rect x="${ox}" y="${oy}" width="7" height="7"/><rect x="${ox + 1}" y="${oy + 1}" width="5" height="5" fill="#fff"/><rect x="${ox + 2}" y="${oy + 2}" width="3" height="3"/>`;
-  return `<svg viewBox="0 0 ${n} ${n}" style="width:100%;height:100%" shape-rendering="crispEdges"><rect width="${n}" height="${n}" fill="#fff"/>${finder(0, 0)}${finder(n - 7, 0)}${finder(0, n - 7)}${cells.join('')}</svg>`;
+  return `<svg viewBox="0 0 ${n} ${n}" style="width:100%;height:100%" shape-rendering="crispEdges" data-qr="${escapeAttr(value)}" data-qr-version="${data.version}" data-qr-ecc="${data.ecc}">`
+    + `<rect width="${n}" height="${n}" fill="#fff"/>`
+    + `<g transform="translate(${quiet},${quiet}) scale(${(n - quiet * 2) / n})" fill="#000">${cells.join('')}</g>`
+    + `</svg>`;
 }
 
 /**
@@ -1139,6 +1157,8 @@ module.exports = {
   interpolate,
   formatValue,
   buildGroups,
+  qrSVG,
+  code128SVG,
   BANDS,
   ELEMENT_TYPES,
   PAPER_SIZES,

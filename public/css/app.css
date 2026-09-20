@@ -454,3 +454,69 @@ body.dark .dz-canvas-wrap { background: #070d1a; }
   .main { margin: 0 !important; }
   .content { padding: 0; }
 }
+
+/* ============================ Quét mã kiểm kê ============================ */
+.scan-toolbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 14px; margin-bottom: 14px; }
+.scan-field { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.scan-field > span { color: var(--text-muted); }
+.scan-field select, .scan-field input[type="text"] { padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-card); color: var(--text); font-family: inherit; font-size: 13px; }
+.scan-field select { min-width: 320px; max-width: 460px; }
+.scan-toggle { gap: 6px; }
+.scan-toggle input { width: 16px; height: 16px; accent-color: var(--c-primary); }
+.scan-grid { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, 1.15fr); gap: 14px; align-items: start; }
+@media (max-width: 1000px) { .scan-grid { grid-template-columns: 1fr; } }
+
+.scan-stage { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #0b1220; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.scan-stage video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.scan-frame { position: relative; width: 62%; aspect-ratio: 1 / 1; max-width: 260px; }
+.scan-corner { position: absolute; width: 26px; height: 26px; border: 3px solid #22d3ee; }
+.scan-corner.tl { top: 0; left: 0; border-right: 0; border-bottom: 0; border-radius: 6px 0 0 0; }
+.scan-corner.tr { top: 0; right: 0; border-left: 0; border-bottom: 0; border-radius: 0 6px 0 0; }
+.scan-corner.bl { bottom: 0; left: 0; border-right: 0; border-top: 0; border-radius: 0 0 0 6px; }
+.scan-corner.br { bottom: 0; right: 0; border-left: 0; border-top: 0; border-radius: 0 0 6px 0; }
+.scan-laser { position: absolute; left: 6%; right: 6%; height: 2px; background: linear-gradient(90deg, transparent, #22d3ee, transparent); animation: scan-laser 2.1s ease-in-out infinite; }
+@keyframes scan-laser { 0% { top: 6%; } 50% { top: 92%; } 100% { top: 6%; } }
+.scan-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #94a3b8; font-size: 13px; background: repeating-linear-gradient(45deg, #0b1220, #0b1220 12px, #0f1a2e 12px, #0f1a2e 24px); text-align: center; }
+.scan-placeholder > :first-child { font-size: 30px; }
+.scan-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.scan-status { margin-top: 8px; color: var(--text-muted); min-height: 18px; }
+.scan-status.ok { color: var(--c-success); }
+.scan-status.warn { color: var(--c-warning); }
+.scan-manual { display: flex; gap: 8px; margin-top: 10px; }
+.scan-manual input { flex: 1; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--bg-muted); color: var(--text); font-family: monospace; font-size: 14px; }
+.scan-manual input:focus { outline: 2px solid var(--c-primary); background: var(--bg-card); }
+.scan-tips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.scan-result { display: flex; flex-direction: column; gap: 10px; }
+.scan-idle { text-align: center; color: var(--text-muted); padding: 26px 10px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.scan-idle > :first-child { font-size: 30px; }
+.scan-banner { border-radius: 9px; padding: 9px 12px; font-size: 12.5px; border: 1px solid transparent; }
+.scan-banner.ok { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.scan-banner.warn { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.scan-banner.danger { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.scan-asset { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--bg-muted); }
+.scan-asset-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.scan-asset-code { font-size: 19px; font-weight: 800; letter-spacing: .5px; }
+.scan-asset-name { font-size: 14px; font-weight: 600; margin-top: 2px; }
+.scan-asset-qty { text-align: right; font-size: 12px; }
+.scan-asset-qty b { font-size: 16px; display: block; }
+.scan-asset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin-top: 10px; font-size: 12.5px; }
+.scan-asset-grid > div { display: flex; flex-direction: column; gap: 1px; }
+.scan-result-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.scan-result-actions .btn { justify-content: center; padding: 10px; font-size: 13px; }
+.scan-actions-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.scan-actions-row input { padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-card); color: var(--text); font-family: inherit; }
+.scan-progress { margin-top: 8px; }
+.scan-bar { height: 12px; background: var(--bg-muted); border-radius: 20px; overflow: hidden; border: 1px solid var(--border); }
+.scan-bar > span { display: block; height: 100%; background: linear-gradient(90deg, #22c55e, #16a34a); transition: width .3s ease; }
+.scan-nums { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; }
+.scan-nums .ok { color: var(--c-success); }
+.scan-nums .warn { color: var(--c-warning); }
+.scan-session { margin-top: 6px; }
+.scan-history { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; max-height: 280px; overflow: auto; }
+.scan-history-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 112px auto 30px; gap: 8px; align-items: center; font-size: 12.5px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
+.scan-history-row:hover { background: var(--bg-muted); }
+.scan-history-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge.b-ok { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.badge.b-warn { background: #fffbeb; color: #b45309; border-color: #fde68a; }

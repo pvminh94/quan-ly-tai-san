@@ -31,6 +31,7 @@
 | **Khấu hao** | 6 phương pháp (đường thẳng, số dư giảm dần, số dư giảm dần có điều chỉnh, theo sản lượng, theo tỷ lệ, không khấu hao), chạy khấu hao theo kỳ, xem trước, ghi sổ, chứng từ bảng tính khấu hao |
 | **Trình thiết kế báo cáo** | Kéo–thả, 8 dải in (band), 13 loại phần tử, biểu thức & hàm tổng hợp, nhóm – sắp xếp – lọc – tham số, khổ giấy A4/A5/A3/Letter/Legal/hoá đơn, lưới & bám lưới, ghost preview dữ liệu mẫu, undo/redo, xuất HTML/CSV/Excel/Word, xem trước + in |
 | **Chứng từ in** | 9 mẫu chứng từ khổ A4 chuẩn văn bản hành chính Việt Nam: biên bản bàn giao, biên bản điều chuyển, phiếu bảo trì, biên bản thanh lý, biên bản kiểm kê, phiếu bảo hành, nhãn/tem tài sản, bảng tính khấu hao, bảng kê tài sản theo hợp đồng |
+| **Quét mã QR / mã vạch** | Bộ sinh **QR thật theo ISO/IEC 18004** (phiên bản 1–10, 4 mức sửa lỗi, không dùng thư viện ngoài) + Code128; tem tài sản in ra có mã QR `ams://asset/<mã>`; trang **Quét mã** dùng camera điện thoại để kiểm kê nhanh: tự nhận diện, tự ghi nhận, tiến độ, lịch sử, hoàn tác |
 | **Quản trị** | Ma trận phân quyền 23 phân hệ × 6 hành động, phạm vi dữ liệu (toàn hệ thống / phòng ban / cá nhân), nhật ký thao tác, quản lý phiên đăng nhập, sao lưu – phục hồi, xuất CSDL JSON & script SQL (MySQL/PostgreSQL), thùng rác & khôi phục |
 | **Giao diện** | SPA thuần JavaScript, tiếng Việt 100%, sáng/tối, thu gọn menu, Ctrl+K tìm kiếm nhanh, thông báo, biểu đồ SVG tự vẽ, biểu mẫu sinh tự động từ metadata, in ấn chuyên nghiệp |
 
@@ -53,12 +54,14 @@ quan-ly-tai-san/
 │  │  ├─ service.js            # tầng nghiệp vụ: khấu hao, tổng hợp KPI, dataset báo cáo
 │  │  ├─ http.js               # router mini, gửi/nhận, phục vụ tệp tĩnh an toàn
 │  │  ├─ report-engine.js      # động cơ báo cáo theo dải + xuất HTML/CSV/XLSX/DOCX
+│  │  ├─ qr.js                 # bộ sinh mã QR theo chuẩn ISO/IEC 18004 (thuần JS)
 │  │  ├─ documents.js          # 9 mẫu chứng từ in (HTML khổ A4)
 │  │  └─ zip.js                # đóng gói ZIP để tạo .docx/.xlsx không cần thư viện
 │  └─ tools/
 │     ├─ reset-seed.js         # khởi tạo lại dữ liệu mẫu (có sao lưu trước)
-│     ├─ smoke-test.js         # kiểm thử API đầu-cuối (151 phép kiểm tra)
-│     └─ ui-test.js            # kiểm thử giao diện bằng DOM thật (jsdom, tuỳ chọn)
+│     ├─ smoke-test.js         # kiểm thử API đầu-cuối (181 phép kiểm tra)
+│     ├─ ui-test.js            # kiểm thử giao diện bằng DOM thật (jsdom, tuỳ chọn)
+│     └─ qr-test.js            # kiểm chứng mã QR bằng bộ giải mã độc lập (tuỳ chọn)
 └─ public/                     # SPA
    ├─ index.html
    ├─ css/app.css              # hệ thống thiết kế + theme tối + CSS trình thiết kế + quy tắc in
@@ -67,6 +70,7 @@ quan-ly-tai-san/
       ├─ ui.js                 # thành phần UI: bảng dữ liệu, modal, biểu mẫu theo metadata…
       ├─ charts.js             # biểu đồ SVG (cột, đường, tròn, xếp chồng, sparkline)
       ├─ pages.js              # trang nghiệp vụ: danh sách/chi tiết/sửa, kiểm kê, báo cáo…
+      ├─ scan.js               # TRANG QUÉT MÃ QR/MÃ VẠCH (camera điện thoại → kiểm kê nhanh)
       ├─ dashboard.js          # bảng điều khiển & phân tích
       ├─ designer.js           # TRÌNH THIẾT KẾ BÁO CÁO
       ├─ admin.js              # phân hệ quản trị
@@ -98,18 +102,24 @@ Dữ liệu nằm ở `data/db.json`. Xoá thư mục `data/` rồi chạy lại
 ## 4. Kiểm thử
 
 ```bash
-npm test                       # 151 phép kiểm tra API đầu-cuối (tự khởi động máy chủ ở cổng 3111)
+npm test                       # 181 phép kiểm tra API đầu-cuối (tự khởi động máy chủ ở cổng 3111)
 node server/tools/smoke-test.js --port 3000     # chạy trên máy chủ đang mở
 node server/tools/smoke-test.js --keep          # giữ lại dữ liệu kiểm thử để xem
 
 # Kiểm thử giao diện (cần jsdom, chỉ dùng khi kiểm thử):
 npm install --no-save jsdom
-node server/tools/ui-test.js 3000               # duyệt 34 đường dẫn, 58 phép kiểm tra, bắt lỗi JS
+node server/tools/ui-test.js 3000               # duyệt 35 đường dẫn, 73 phép kiểm tra, bắt lỗi JS
+
+# Kiểm chứng mã QR bằng bộ giải mã độc lập (cần ZXing, chỉ dùng khi kiểm thử):
+npm install --no-save @zxing/library qrcode-generator
+node server/tools/qr-test.js                    # 138 phép kiểm chứng (giải mã + đối chiếu từng ô)
 ```
 
-`ui-test.js` gồm **58 phép kiểm tra**: nạp 8 mô-đun SPA, đăng nhập, dựng menu theo phân quyền, duyệt toàn bộ 34 đường dẫn (không phát sinh lỗi JavaScript), tìm kiếm nhanh, biểu đồ SVG, biểu mẫu sinh theo metadata, Trình thiết kế báo cáo (dải in, phần tử, ghost preview), **hộp thoại xác nhận trả về đúng giá trị**, **xoá bản ghi thật qua giao diện**, và **toàn bộ luồng đăng xuất → đăng nhập lại** (cookie bị xoá, phiên thu hồi, quay về màn hình đăng nhập). Cả hai bộ kiểm thử đều tự dọn dẹp dữ liệu, chạy lại nhiều lần không để lại rác.
+`ui-test.js` gồm **73 phép kiểm tra**: nạp 8 mô-đun SPA, đăng nhập, dựng menu theo phân quyền, duyệt toàn bộ 34 đường dẫn (không phát sinh lỗi JavaScript), tìm kiếm nhanh, biểu đồ SVG, biểu mẫu sinh theo metadata, Trình thiết kế báo cáo (dải in, phần tử, ghost preview), **hộp thoại xác nhận trả về đúng giá trị**, **xoá bản ghi thật qua giao diện**, **trang quét mã** (khung camera, quét thử, tra cứu mã, đổi kết quả, lịch sử, tiến độ, hoàn tác, hộp thoại in tem) và **toàn bộ luồng đăng xuất → đăng nhập lại** (cookie bị xoá, phiên thu hồi, quay về màn hình đăng nhập). Cả hai bộ kiểm thử đều tự dọn dẹp dữ liệu: dòng kiểm kê, tài sản, bản ghi nghiệp vụ đều được trả về đúng trạng thái trước khi chạy (chỉ ghi thêm **nhật ký hệ thống** và phiên đăng nhập — đúng như khi dùng thật), nên chạy lại nhiều lần cũng không làm lệch dữ liệu mẫu.
 
-`smoke-test.js` gồm **152 phép kiểm tra**: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất, mọi mẫu hệ thống phải ra dữ liệu), 9 chứng từ in, và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
+`qr-test.js` gồm **138 phép kiểm chứng**: giải mã QR do hệ thống sinh bằng bộ giải mã độc lập **ZXing** (nội dung thật của hệ thống, 10 phiên bản × 4 mức sửa lỗi × 3 độ dài, kể cả trường hợp sát dung lượng), và **đối chiếu từng ô** với bộ sinh tham chiếu `qrcode-generator` (0 ô khác biệt). Bộ kiểm thử chỉ chạy khi bạn cài thư viện kiểm thử — ứng dụng không phụ thuộc chúng.
+
+`smoke-test.js` gồm **181 phép kiểm tra**: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất, mọi mẫu hệ thống phải ra dữ liệu), 9 chứng từ in, **quét mã QR/mã vạch** (bộ sinh QR, tra cứu mã, luồng quét kiểm kê, tem có mã QR), và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
 
 ---
 
@@ -135,13 +145,28 @@ node server/tools/ui-test.js 3000               # duyệt 34 đường dẫn, 58
 - Tạo đợt kiểm kê theo phạm vi, hệ thống **tự sinh danh sách dòng kiểm kê** từ sổ sách (kèm vị trí sổ sách, người sử dụng sổ sách).
 - **Màn hình kiểm kê chuyên dụng**: nhập nhanh, đánh dấu khớp / không tìm thấy / sai vị trí / hư hỏng / phát hiện thêm, ghi người kiểm kê & thời điểm, thanh tiến độ.
 - Khi ghi nhận thiếu/sai vị trí, hệ thống tự cập nhật trạng thái tài sản; chốt kiểm kê ghi mốc thời gian kiểm kê lên tài sản.
+- **Quét mã kiểm kê nhanh**: từ danh sách đợt kiểm kê hoặc màn hình kiểm kê bấm **📷 Quét mã QR** để mở trang quét đã gắn sẵn đợt kiểm kê (xem 5.5).
 
-### 5.5 Báo cáo & Trình thiết kế báo cáo
+### 5.5 Quét mã QR / mã vạch — kiểm kê nhanh bằng điện thoại (`#/scan`)
+
+Đường dẫn: `#/scan` (mở trực tiếp), `#/scan?stocktake=<id>` (gắn sẵn đợt kiểm kê), `#/scan?code=<mã>` (tra cứu sẵn một mã).
+
+- **Camera điện thoại**: dùng `getUserMedia` + `BarcodeDetector` của trình duyệt, tự dò và đọc liên tục; hỗ trợ QR, Code128, Code39/93, EAN-8/13, UPC-A/E, ITF, Codabar, DataMatrix, PDF417 (chỉ hiện loại máy hỗ trợ). Có khung ngắm, tia quét và **rung + tiếng bíp** khi nhận mã.
+- **Tự ghi nhận (auto)**: mặc định bật — quét được là ghi ngay kết quả **Khớp** vào đợt kiểm kê, không cần chạm màn hình; bỏ chọn nếu muốn quét rồi tự chọn kết quả.
+- **Chống trùng**: cùng một mã trong 1,5 giây chỉ tính một lần → cầm điện thoại quét liên tục không bị nhân đôi dòng kiểm kê.
+- **Bốn kết quả chuẩn**: Khớp • Sai vị trí • Hư hỏng • Không tìm thấy (+ **Phát hiện thêm** khi tài sản không có trong danh sách sổ sách). Ghi kèm số lượng kiểm kê thực tế và ghi chú.
+- **Không có camera vẫn dùng được**: nhập mã bằng tay, **chụp/đọc mã từ ảnh** (kéo–thả tệp), hoặc nút **Quét thử** để mô phỏng quét ngay trên máy tính.
+- **Theo dõi & sửa sai**: thẻ tiến độ (đã kiểm kê / còn lại / khớp / lệch / tỷ lệ %), **lịch sử 20 lượt quét gần nhất** kèm người quét – giờ quét, mỗi dòng có nút **↩ Hoàn tác** để bỏ lượt ghi nhận sai.
+- **In tem để quét**: mọi tài sản có nút **🏷 In tem QR**; chọn số nhãn (2–16, mặc định 8) → in hàng loạt tem khổ A4, mỗi tem có **mã QR `ams://asset/<mã>`** (điện thoại quét là mở đúng tài sản) và **mã vạch Code128**.
+- **Mã mà hệ thống hiểu**: mã tài sản (`TS-2026-00001`), liên kết QR trên tem (`ams://asset/TS-2026-00001`), liên kết kiểm kê (`ams://stocktake/<mã đợt>/asset/<id>)`, số sê-ri, hoặc mã đợt kiểm kê. Không phân biệt chữ hoa/thường, bỏ qua dấu cách và gạch dưới.
+- **API tương ứng**: `GET /api/scan/lookup`, `POST /api/scan/count`, `GET /api/scan/history`.
+
+### 5.6 Báo cáo & Trình thiết kế báo cáo
 - **28 nguồn dữ liệu** dùng chung cho báo cáo, gồm 21 bảng nghiệp vụ và 7 khung nhìn tổng hợp (`v_asset_full`, `v_depreciation_by_period`, `v_asset_value_by_dept`, `v_maintenance_history`, `v_stocktake_result`, `v_user_assets`, `v_asset_ledger`).
 - **9 mẫu báo cáo hệ thống**: tài sản theo phòng ban, khấu hao theo kỳ, biên bản kiểm kê, sổ tài sản cố định, giá trị theo phòng ban, lịch sử bảo trì, tài sản theo nhân viên, thanh lý, tem tài sản.
 - Nhân bản mẫu để tuỳ biến, lưu thành mẫu mới, đánh số phiên bản khi lưu.
 
-### 5.6 Quản trị hệ thống (`#/admin`)
+### 5.7 Quản trị hệ thống (`#/admin`)
 | Trang | Nội dung |
 |---|---|
 | Trạng thái hệ thống | Phiên bản, thời gian hoạt động, dung lượng CSDL, bộ nhớ, số phiên, số bản ghi từng bảng |
@@ -210,7 +235,8 @@ Xác thực bằng cookie `ams_token` (HttpOnly) hoặc header `Authorization: B
 | CRUD dùng chung | `GET|POST /api/entities/:entity`, `GET|PUT|PATCH|DELETE /api/entities/:entity/:id`, `GET /api/entities/:entity/trash`, `POST /api/entities/:entity/:id/restore`, `GET /api/entities/:entity/export.csv`, `POST /api/entities/:entity/import` |
 | Nghiệp vụ | `POST /api/depreciations/run`, `GET /api/depreciations/preview`, `POST /api/stocktakes/:id/generate-items`, `POST /api/stocktakes/:id/items/:itemId`, `POST /api/stocktakes/:id/close`, `POST /api/{transfers|disposals|maintenances|assignments}/:id/:action`, `GET /api/assets/:id/history` |
 | Báo cáo | `GET /api/reports/datasets`, `GET /api/reports/datasets/:key/data`, `POST /api/reports/preview`, `POST /api/reports/render`, `POST /api/reports/templates/clone`, `GET /api/reports/blank-design` |
-| Chứng từ | `GET /api/documents/:type/:id` |
+| Chứng từ | `GET /api/documents/:type/:id` (riêng tem tài sản: `GET /api/documents/label/:assetId?copies=8`) |
+| Quét mã | `GET /api/scan/lookup?code=&stocktakeId=`, `POST /api/scan/count` (`{stocktakeId, code, result, countedQty, note}`), `GET /api/scan/history?stocktakeId=&limit=` |
 | Quản trị | `GET /api/admin/system`, `/permission-matrix`, `/backups`, `POST /api/admin/backup`, `/restore-backup`, `/upload-backup`, `GET /api/admin/db/export`, `POST /api/admin/db/import`, `GET /api/admin/db/export-sql?dialect=mysql|postgres`, `POST /api/admin/reset-demo`, `DELETE /api/admin/audit-logs`, `DELETE /api/admin/sessions/:id`, `POST /api/admin/users/:id/reset-password`, `POST /api/admin/users/:id/toggle-status` |
 | Thông báo | `GET /api/notifications`, `POST /api/notifications/mark`, `POST /api/notifications/refresh-alerts` |
 | Khác | `GET /api/health` |
