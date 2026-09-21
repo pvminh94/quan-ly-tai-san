@@ -459,6 +459,48 @@ async function testReports() {
   check('Thiết kế trống có khổ giấy & lề', !!paper && !!blank.json.data.margins, paper + ' • lề ' + JSON.stringify(blank.json.data.margins));
   check('Thiết kế trống có đủ 8 dải in', Object.keys(blank.json.data.bands || {}).length === 8, Object.keys(blank.json.data.bands || {}).length + ' dải');
 
+  // Kiểm tra nâng cao blank-design với các cột tuỳ chọn và tỷ lệ bề rộng
+  const customCols = [
+    { key: 'code', label: 'Mã tài sản', type: 'string' },
+    { key: 'name', label: 'Tên tài sản', type: 'string' },
+    { key: 'categoryName', label: 'Danh mục', type: 'string' },
+    { key: 'originalCost', label: 'Nguyên giá', type: 'money' },
+    { key: 'status', label: 'Trạng thái', type: 'string' },
+  ];
+  const dynamicDesign = await POST('/api/reports/blank-design', {
+    paperSize: 'A4',
+    orientation: 'portrait',
+    title: 'BÁO CÁO THỬ NGHIỆM ĐỘ RỘNG CỘT',
+    fields: customCols,
+    layoutPreset: 'table',
+    includeIndex: true,
+    autoSum: true,
+  });
+  check('Thuật sĩ tạo bố cục bảng động (POST /api/reports/blank-design)', dynamicDesign.status === 200 && dynamicDesign.json.data.bands, 'status=200');
+  const dynCols = (dynamicDesign.json.data.bands.columnHeader || {}).elements || [];
+  const totalDynW = dynCols.reduce((s, e) => s + (e.w || 0), 0);
+  check('Tự động tính độ rộng cột vừa khít 100% trang in (186 mm)', Math.abs(totalDynW - 186) <= 0.5, totalDynW.toFixed(1) + ' mm / 186 mm');
+  check('Tự động thêm cột STT và định dạng tiền tệ', dynCols.length === 6 && (dynCols[0].label === 'STT' || dynCols[0].text === 'STT') && dynCols.some((c) => c.format === 'money'), dynCols.length + ' cột');
+
+  const groupedDesign = await POST('/api/reports/blank-design', {
+    paperSize: 'A4',
+    fields: customCols,
+    layoutPreset: 'grouped',
+    groupField: 'categoryName',
+    groupLabel: 'Danh mục',
+    autoSum: true,
+  });
+  const hasGroupBands = (groupedDesign.json.data.bands.groupHeader || {}).elements && (groupedDesign.json.data.bands.groupFooter || {}).elements;
+  check('Bố cục phân nhóm tự động sinh đầu nhóm & tổng con', hasGroupBands && (groupedDesign.json.data.groups || []).length > 0, 'groups=' + (groupedDesign.json.data.groups || []).length);
+
+  const finDesign = await POST('/api/reports/blank-design', {
+    paperSize: 'A4',
+    fields: customCols,
+    layoutPreset: 'financial',
+  });
+  const finTexts = ((finDesign.json.data.bands.reportFooter || {}).elements || []).map((e) => e.text || '');
+  check('Bố cục tài chính tự động sinh 3 khối chữ ký', finTexts.some((t) => t.includes('Người lập biểu')) && finTexts.some((t) => t.includes('Thủ trưởng đơn vị')), '3 khối chữ ký');
+
   const preview = await POST('/api/reports/preview', { design: templates[0].design, dataset: templates[0].dataset, name: templates[0].name, limit: 20 }, { raw: true });
   check('Xem trước báo cáo (như trình thiết kế)', preview.status === 200 && /<html/i.test(preview.body.toString().slice(0, 300)), (preview.body.length / 1024).toFixed(1) + ' KB');
   const previewCustom = await POST('/api/reports/preview', { design: blank.json.data, dataset: 'v_depreciation_by_period', limit: 30 }, { raw: true });

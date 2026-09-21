@@ -106,58 +106,143 @@ function blankDesign(opts) {
   const orientation = o.orientation || 'portrait';
   const size = PAPER_SIZES[paper] || PAPER_SIZES.A4;
   const contentWidth = (orientation === 'landscape' ? size.height : size.width) - 24;
-  const fields = o.fields || [];
-  const pick = (i) => (fields[i] ? fields[i].key : '');
+
+  // Xử lý danh sách trường được chọn
+  let rawFields = Array.isArray(o.fields) && o.fields.length ? o.fields : null;
+  if (!rawFields) {
+    rawFields = [
+      { key: 'code', label: 'Mã', type: 'string' },
+      { key: 'name', label: 'Tên tài sản', type: 'string' },
+      { key: 'categoryName', label: 'Danh mục', type: 'string' },
+      { key: 'originalCost', label: 'Nguyên giá', type: 'money' },
+    ];
+  }
+  const fields = rawFields.map((f) => (typeof f === 'string' ? { key: f, label: f, type: 'string' } : f));
+
+  // Tính toán bề rộng cột
+  const includeIndex = o.includeIndex !== false;
+  const indexWidth = includeIndex ? 12 : 0;
+  const availWidth = contentWidth - indexWidth;
+
+  const weights = fields.map((f) => {
+    const k = (f.key || '').toLowerCase();
+    if (k.includes('name') || k.includes('description') || k.includes('note') || k.includes('reason')) return 2.2;
+    if (k.includes('department') || k.includes('category') || k.includes('supplier') || k.includes('location')) return 1.5;
+    if (f.type === 'money' || f.type === 'number') return 1.2;
+    if (f.type === 'date' || f.type === 'datetime') return 1.1;
+    return 1.0;
+  });
+  const totalWeight = weights.reduce((s, w) => s + w, 0) || 1;
+  let remainingW = availWidth;
+  const colWidths = weights.map((w, i) => {
+    if (i === weights.length - 1) return Math.max(14, Math.round(remainingW * 10) / 10);
+    const colW = Math.max(14, Math.round((availWidth * (w / totalWeight)) * 10) / 10);
+    remainingW -= colW;
+    return colW;
+  });
+
+  const colEls = [];
+  const detailEls = [];
+
+  if (includeIndex) {
+    colEls.push(el('c0', 'text', { x: 0, y: 0, w: indexWidth, h: 8, text: 'STT', label: 'STT', align: 'center', bold: true, fontSize: 9, bgColor: '#f1f5f9', border: true, format: 'text' }));
+    detailEls.push(el('d0', 'expr', { x: 0, y: 0, w: indexWidth, h: 7, expr: 'ROW()', align: 'center', fontSize: 9, border: true, format: 'number' }));
+  }
+
+  let currX = indexWidth;
+  fields.forEach((f, i) => {
+    const w = colWidths[i];
+    const isMoney = f.type === 'money';
+    const isNum = f.type === 'number';
+    const isDate = f.type === 'date' || f.type === 'datetime';
+    const align = isMoney || isNum ? 'right' : isDate ? 'center' : 'left';
+    const fmt = isMoney ? 'money' : isNum ? 'number' : isDate ? 'date' : 'text';
+
+    colEls.push(el(`c${i + 1}`, 'field', {
+      x: currX, y: 0, w, h: 8,
+      field: f.key, label: f.label || f.key,
+      align, bold: true, fontSize: 9, bgColor: '#f1f5f9', border: true,
+      format: fmt,
+    }));
+
+    detailEls.push(el(`d${i + 1}`, 'field', {
+      x: currX, y: 0, w, h: 7,
+      field: f.key,
+      align, fontSize: 9, border: true,
+      format: fmt,
+    }));
+
+    currX += w;
+  });
+
+  const moneyFields = fields.filter((f) => f.type === 'money');
+  const numFields = fields.filter((f) => f.type === 'number');
+  const sumField = moneyFields[0] || numFields[0];
+
+  const preset = o.layoutPreset || (o.groupField ? 'grouped' : 'table');
+
+  const groups = [];
+  let groupHeaderElements = [];
+  let groupFooterElements = [];
+
+  if (o.groupField || preset === 'grouped') {
+    const gKey = o.groupField || (fields.find((f) => (f.key || '').endsWith('Name')) || fields[0]).key;
+    const gLabel = o.groupLabel || (fields.find((f) => f.key === gKey) || {}).label || 'Nhóm';
+    groups.push({ field: gKey, label: gLabel });
+    groupHeaderElements = [
+      el('gh1', 'text', { x: 0, y: 0, w: contentWidth, h: 8, text: `▸ ${gLabel.toUpperCase()}: {groupValue}`, bold: true, fontSize: 10, bgColor: '#e2e8f0', align: 'left', border: true })
+    ];
+    groupFooterElements = [
+      el('gf1', 'text', { x: 0, y: 0, w: contentWidth * 0.6, h: 8, text: 'Tổng nhóm:', bold: true, fontSize: 9.5, align: 'right', bgColor: '#f8fafc', border: true }),
+      el('gf2', 'expr', {
+        x: contentWidth * 0.6, y: 0, w: contentWidth * 0.4, h: 8,
+        expr: sumField ? `{SUM(${sumField.key},group)}` : '{COUNT(group)} dòng',
+        bold: true, fontSize: 9.5, align: 'right', bgColor: '#f8fafc', border: true,
+        format: sumField && sumField.type === 'money' ? 'money' : sumField ? 'number' : 'text'
+      })
+    ];
+  }
+
+  // Tiêu đề báo cáo
+  const titleText = o.title || 'BÁO CÁO DANH SÁCH DỮ LIỆU';
+  const titleBandElements = [
+    el('t1', 'text', { x: 0, y: 0, w: contentWidth, h: 7, text: '{company.name}', fontSize: 11, bold: true, align: 'center', uppercase: true, color: '#1e3a8a' }),
+    el('t2', 'text', { x: 0, y: 6.5, w: contentWidth, h: 5, text: 'Địa chỉ: {company.address} — ĐT: {company.phone}', fontSize: 8.5, align: 'center', color: '#4b5563' }),
+    el('t3', 'text', { x: 0, y: 13, w: contentWidth, h: 8, text: titleText, fontSize: 16, bold: true, align: 'center', uppercase: true, color: '#0f172a' }),
+    el('t4', 'dateTime', { x: 0, y: 20.5, w: contentWidth, h: 4.5, text: 'Ngày in: {date} {time}', fontSize: 8.5, align: 'center', italic: true, color: '#6b7280' }),
+  ];
+
+  // Footer tổng kết
+  const reportFooterElements = [];
+  const sumExpr = sumField
+    ? `TỔNG CỘNG: {COUNT()} bản ghi — Tổng ${sumField.label || sumField.key}: {SUM(${sumField.key})}`
+    : 'TỔNG CỘNG: {COUNT()} bản ghi';
+  reportFooterElements.push(el('r1', 'expr', { x: 0, y: 0, w: contentWidth, h: 8, expr: sumExpr, bold: true, fontSize: 10.5, align: 'left', border: true, bgColor: '#eff6ff' }));
+
+  if (preset === 'voucher') {
+    reportFooterElements.push(
+      el('r2', 'text', { x: 0, y: 10, w: contentWidth / 2, h: 10, text: 'BÊN GIAO\n(Ký, ghi rõ họ tên)', align: 'center', fontSize: 9, wrap: true }),
+      el('r3', 'text', { x: contentWidth / 2, y: 10, w: contentWidth / 2, h: 10, text: 'BÊN NHẬN\n(Ký, ghi rõ họ tên)', align: 'center', fontSize: 9, wrap: true })
+    );
+  } else {
+    reportFooterElements.push(
+      el('r2', 'text', { x: 0, y: 10, w: contentWidth / 3, h: 10, text: 'Người lập biểu\n(Ký, họ tên)', align: 'center', fontSize: 9, wrap: true }),
+      el('r3', 'text', { x: contentWidth / 3, y: 10, w: contentWidth / 3, h: 10, text: 'Kế toán trưởng\n(Ký, họ tên)', align: 'center', fontSize: 9, wrap: true }),
+      el('r4', 'text', { x: (contentWidth * 2) / 3, y: 10, w: contentWidth / 3, h: 10, text: 'Thủ trưởng đơn vị\n(Ký, đóng dấu)', align: 'center', fontSize: 9, wrap: true })
+    );
+  }
+
   return {
     paperSize: paper,
     orientation,
     margins: { top: 12, right: 12, bottom: 12, left: 12 },
     bands: {
-      reportTitle: {
-        height: 24,
-        elements: [
-          el('t1', 'text', { x: 0, y: 0, w: contentWidth, h: 7, text: '{company.name}', fontSize: 11, bold: true, align: 'center', uppercase: true, color: '#1e3a8a' }),
-          el('t2', 'text', { x: 0, y: 6.5, w: contentWidth, h: 5, text: 'Địa chỉ: {company.address} — ĐT: {company.phone}', fontSize: 8.5, align: 'center', color: '#4b5563' }),
-          el('t3', 'text', { x: 0, y: 13, w: contentWidth, h: 8, text: o.title || 'BÁO CÁO DANH SÁCH TÀI SẢN', fontSize: 16, bold: true, align: 'center', uppercase: true, color: '#0f172a' }),
-          el('t4', 'dateTime', { x: 0, y: 20.5, w: contentWidth, h: 4.5, text: 'Ngày in: {date} {time}', fontSize: 8.5, align: 'center', italic: true, color: '#6b7280' }),
-        ],
-      },
-      pageHeader: {
-        height: 12,
-        elements: [
-          el('p1', 'text', { x: 0, y: 0, w: contentWidth, h: 5, text: o.subTitle || 'Kỳ báo cáo: {params.fromDate} - {params.toDate}', fontSize: 9, align: 'left', color: '#374151' }),
-        ],
-      },
-      columnHeader: {
-        height: 8,
-        elements: [
-          el('c1', 'text', { x: 0, y: 0, w: 14, h: 8, text: 'STT', align: 'center', bold: true, fontSize: 9, bgColor: '#f1f5f9', border: true, format: 'text' }),
-          el('c2', 'field', { x: 14, y: 0, w: 40, h: 8, field: pick(0) || 'code', label: 'Mã', align: 'center', bold: true, fontSize: 9, bgColor: '#f1f5f9', border: true }),
-          el('c3', 'field', { x: 54, y: 0, w: 78, h: 8, field: pick(1) || 'name', label: 'Tên tài sản', align: 'left', bold: true, fontSize: 9, bgColor: '#f1f5f9', border: true }),
-          el('c4', 'field', { x: 132, y: 0, w: 34, h: 8, field: pick(2) || 'categoryName', label: 'Danh mục', align: 'left', bold: true, fontSize: 9, bgColor: '#f1f5f9', border: true }),
-          el('c5', 'field', { x: contentWidth - 34, y: 0, w: 34, h: 8, field: pick(3) || 'originalCost', label: 'Nguyên giá', align: 'right', bold: true, fontSize: 9, bgColor: '#f1f5f9', border: true, format: 'money' }),
-        ],
-      },
-      detail: {
-        height: 7,
-        elements: [
-          el('d1', 'expr', { x: 0, y: 0, w: 14, h: 7, expr: 'ROW()', align: 'center', fontSize: 9, border: true, format: 'number' }),
-          el('d2', 'field', { x: 14, y: 0, w: 40, h: 7, field: pick(0) || 'code', align: 'center', fontSize: 9, border: true }),
-          el('d3', 'field', { x: 54, y: 0, w: 78, h: 7, field: pick(1) || 'name', align: 'left', fontSize: 9, border: true }),
-          el('d4', 'field', { x: 132, y: 0, w: 34, h: 7, field: pick(2) || 'categoryName', align: 'left', fontSize: 9, border: true }),
-          el('d5', 'field', { x: contentWidth - 34, y: 0, w: 34, h: 7, field: pick(3) || 'originalCost', align: 'right', fontSize: 9, border: true, format: 'money' }),
-        ],
-      },
-      groupHeader: {
-        height: 8,
-        elements: [el('g1', 'field', { x: 0, y: 0, w: contentWidth, h: 8, field: 'groupLabel', text: 'Nhóm: {groupValue}', bold: true, fontSize: 10, bgColor: '#e2e8f0', align: 'left', border: true })],
-      },
-      groupFooter: {
-        height: 8,
-        elements: [
-          el('gf1', 'expr', { x: 0, y: 0, w: contentWidth, h: 8, expr: 'TỔNG NHÓM: {COUNT()}', align: 'left', bold: true, fontSize: 9, bgColor: '#f8fafc', border: true }),
-        ],
-      },
+      reportTitle: { height: 24, elements: titleBandElements },
+      pageHeader: { height: 10, elements: [el('p1', 'text', { x: 0, y: 0, w: contentWidth, h: 5, text: o.subTitle || 'Kỳ báo cáo: {params.fromDate} - {params.toDate}', fontSize: 9, align: 'left', color: '#374151' })] },
+      columnHeader: { height: 8, elements: colEls },
+      detail: { height: 7, elements: detailEls },
+      groupHeader: { height: 8, elements: groupHeaderElements },
+      groupFooter: { height: 8, elements: groupFooterElements },
       pageFooter: {
         height: 12,
         elements: [
@@ -167,17 +252,9 @@ function blankDesign(opts) {
           el('f4', 'systemInfo', { x: 0, y: 6, w: contentWidth, h: 4, text: '{footer}', fontSize: 7.5, align: 'center', color: '#9ca3af', italic: true }),
         ],
       },
-      reportFooter: {
-        height: 22,
-        elements: [
-          el('r1', 'expr', { x: 0, y: 0, w: contentWidth, h: 8, expr: 'TỔNG CỘNG: {COUNT()} tài sản', bold: true, fontSize: 11, align: 'left', border: true, bgColor: '#eff6ff' }),
-          el('r2', 'text', { x: 0, y: 10, w: contentWidth / 3, h: 10, text: 'Người lập biểu\n(Ký, họ tên)', align: 'center', fontSize: 9, wrap: true }),
-          el('r3', 'text', { x: contentWidth / 3, y: 10, w: contentWidth / 3, h: 10, text: 'Kế toán trưởng\n(Ký, họ tên)', align: 'center', fontSize: 9, wrap: true }),
-          el('r4', 'text', { x: (contentWidth * 2) / 3, y: 10, w: contentWidth / 3, h: 10, text: 'Giám đốc\n(Ký, họ tên, đóng dấu)', align: 'center', fontSize: 9, wrap: true }),
-        ],
-      },
+      reportFooter: { height: 22, elements: reportFooterElements },
     },
-    groups: o.groups || [],
+    groups: o.groups || groups,
     sorting: o.sorting || [],
     filters: o.filters || [],
     parameters: o.parameters || defaultParameters(),

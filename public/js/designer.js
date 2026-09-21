@@ -167,6 +167,12 @@
             <span class="tiny mono" id="dz-zoom-label" style="min-width:44px;text-align:center">100%</span>
             <button class="tb" id="tb-zoom-in" title="Phóng to">➕</button>
             <span class="div"></span>
+            <button class="tb" id="tb-table-wiz" title="Thuật sĩ tạo lại bảng cột (Table Wizard)">📋 Bảng</button>
+            <button class="tb" id="tb-fit-col" title="Căn đều các cột vừa khít trang">↔ Căn cột</button>
+            <button class="tb" id="tb-formula" title="Trợ lý tạo công thức tính toán">🧮 Công thức</button>
+            <button class="tb" id="tb-export-json" title="Xuất cấu hình mẫu ra JSON">📤 JSON</button>
+            <button class="tb" id="tb-import-json" title="Nhập cấu hình mẫu từ JSON">📥 Nạp</button>
+            <span class="div"></span>
             <button class="btn sm" id="tb-preview">👁 Xem trước (F5)</button>
             <button class="btn sm" id="tb-print">🖨 In / PDF</button>
             <button class="btn sm" id="tb-docx">📝 Word</button>
@@ -213,6 +219,19 @@
     $('#tb-snap').onclick = () => { D.snap = !D.snap; $('#tb-snap').classList.toggle('active', D.snap); };
     $('#tb-zoom-in').onclick = () => { D.zoom = Math.min(2, D.zoom + 0.1); renderCanvas(); };
     $('#tb-zoom-out').onclick = () => { D.zoom = Math.max(0.4, D.zoom - 0.1); renderCanvas(); };
+    const wizBtn = $('#tb-table-wiz');
+    if (wizBtn) wizBtn.onclick = () => tableWizard();
+    const fitBtn = $('#tb-fit-col');
+    if (fitBtn) fitBtn.onclick = () => autoFitColumns();
+    const formBtn = $('#tb-formula');
+    if (formBtn) formBtn.onclick = () => {
+      const cur = D.selection.length === 1 ? (findEl(D.selection[0]) || {}).el : null;
+      formulaBuilder(cur && cur.type === 'expr' ? cur : null);
+    };
+    const expJsonBtn = $('#tb-export-json');
+    if (expJsonBtn) expJsonBtn.onclick = () => exportJson();
+    const impJsonBtn = $('#tb-import-json');
+    if (impJsonBtn) impJsonBtn.onclick = () => importJson();
     $('#tb-preview').onclick = () => preview();
     $('#tb-print').onclick = () => exportAs('html');
     $('#tb-docx').onclick = () => exportAs('docx');
@@ -253,10 +272,18 @@
       host.innerHTML = `
         <div class="dz-group">Đối tượng thiết kế</div>
         ${tools.map((t) => `<div class="dz-tool" draggable="true" data-newtype="${t.type}"><span>${t.icon}</span><span>${t.label}</span></div>`).join('')}
-        <div class="dz-group">Thao tác nhanh</div>
-        <button class="btn sm block mb" id="dp-template-dept">📋 Tạo bảng theo phòng ban</button>
-        <button class="btn sm block mb" id="dp-template-list">📋 Tạo bảng danh sách đơn giản</button>
-        <button class="btn sm block mb" id="dp-template-summary">📋 Tạo bảng tổng hợp có nhóm</button>
+        <div class="dz-group">Thuật sĩ & Bố cục bảng</div>
+        <button class="btn sm block mb" id="dp-table-wiz" style="background:var(--c-primary);color:#fff;font-weight:600">✨ Thuật sĩ tạo bảng (Table Wizard)</button>
+        <button class="btn sm block mb" id="dp-fit-col">↔ Căn đều cột vừa khít trang</button>
+        <button class="btn sm block mb" id="dp-formula">🧮 Trợ lý tạo công thức tổng hợp</button>
+        <button class="btn sm block mb" id="dp-template-dept">📋 Bảng có nhóm + tổng nhóm</button>
+        <button class="btn sm block mb" id="dp-template-list">📋 Bảng danh sách tiêu chuẩn</button>
+        <button class="btn sm block mb" id="dp-template-summary">💰 Bảng tổng hợp tài chính</button>
+        <div class="dz-group">Sao lưu & Chuyển giao</div>
+        <div class="row gap mb">
+          <button class="btn sm flex" id="dp-export-json">📤 Xuất JSON</button>
+          <button class="btn sm flex" id="dp-import-json">📥 Nạp JSON</button>
+        </div>
         <div class="dz-group">Bố cục band</div>
         <div class="tiny muted">Kéo đối tượng vào band tương ứng ở trang thiết kế. Nhấp đúp vào đối tượng để sửa nhanh nội dung.</div>`;
       host.querySelectorAll('[data-newtype]').forEach((el) => {
@@ -268,9 +295,14 @@
           addElement(el.dataset.newtype, { x: 10, y: 1, w: 60, h: 7 }, currentBand());
         });
       });
+      host.querySelector('#dp-table-wiz').onclick = () => tableWizard();
+      host.querySelector('#dp-fit-col').onclick = () => autoFitColumns();
+      host.querySelector('#dp-formula').onclick = () => formulaBuilder();
       host.querySelector('#dp-template-list').onclick = () => quickTable('list');
       host.querySelector('#dp-template-dept').onclick = () => quickTable('group');
       host.querySelector('#dp-template-summary').onclick = () => quickTable('summary');
+      host.querySelector('#dp-export-json').onclick = () => exportJson();
+      host.querySelector('#dp-import-json').onclick = () => importJson();
     }
     if (tab === 'fields') {
       const groups = {};
@@ -722,11 +754,35 @@
     renderCanvas();
   }
 
+  function getContentWidth() {
+    const paper = PAPER[D.design.paperSize] || PAPER.A4;
+    const landscape = D.design.orientation === 'landscape';
+    const totalW = landscape ? paper[1] : paper[0];
+    const m = D.design.margins || { left: 12, right: 12 };
+    return Math.max(50, totalW - (m.left || 0) - (m.right || 0));
+  }
+
   function align(mode) {
     if (D.selection.length < 1) return UI.toast('Chưa chọn đối tượng', 'Hãy chọn ít nhất một đối tượng', 'warning');
     pushUndo();
     const items = D.selection.map((id) => findEl(id)).filter(Boolean);
     const els = items.map((x) => x.el);
+    const contentW = getContentWidth();
+
+    if (els.length === 1) {
+      const e = els[0];
+      switch (mode) {
+        case 'left': e.x = 0; break;
+        case 'right': e.x = snap(contentW - Number(e.w)); break;
+        case 'center': e.x = snap((contentW - Number(e.w)) / 2); break;
+        case 'same-w': e.x = 0; e.w = snap(contentW); break;
+        case 'top': e.y = 0; break;
+      }
+      renderCanvas();
+      renderRight('props');
+      return;
+    }
+
     const minX = Math.min.apply(null, els.map((e) => Number(e.x)));
     const maxX = Math.max.apply(null, els.map((e) => Number(e.x) + Number(e.w)));
     const minY = Math.min.apply(null, els.map((e) => Number(e.y)));
@@ -830,7 +886,9 @@
           <textarea id="p-text" rows="${e.type === 'expr' || e.type === 'richText' ? 4 : 2}">${U.esc(e.text || '')}</textarea>
           ${e.type === 'expr' ? `<div class="hint">Ví dụ: <code class="mono">TỔNG: {SUM(originalCost)} VNĐ</code>, <code class="mono">{COUNT()}</code>, <code class="mono">{SUM(cost,group)}</code></div>` : ''}
         </div>` : ''}
-      ${e.type === 'expr' ? `<div class="field"><label>Biểu thức tổng hợp (expr)</label><input type="text" id="p-expr" value="${U.attr(e.expr || '')}" class="mono"/></div>` : ''}
+      ${e.type === 'expr' ? `<div class="field"><label>Biểu thức tổng hợp (expr)</label><input type="text" id="p-expr" value="${U.attr(e.expr || '')}" class="mono"/>
+        <button type="button" class="btn sm ghost block" id="p-formula-btn" style="margin-top:6px">🧮 Trợ lý tạo công thức…</button>
+      </div>` : ''}
       ${e.type === 'image' ? `<div class="field"><label>Nguồn ảnh (URL hoặc trường dữ liệu)</label><input type="text" id="p-img" value="${U.attr(e.text || '')}"/><div class="hint">Để trống sẽ dùng logo công ty trong cấu hình.</div></div>` : ''}
       <div class="prop-row">
         <div class="field"><label>X (mm)</label><input type="number" step="0.5" id="p-x" value="${Number(e.x || 0)}"/></div>
@@ -861,8 +919,16 @@
         <div class="field"><label>Màu nền</label><input type="color" id="p-bg" value="${U.attr(e.bgColor || '#ffffff')}" style="height:32px;padding:2px"/></div>
       </div>
       <label class="checkbox mb"><input type="checkbox" id="p-nobg" ${!e.bgColor ? 'checked' : ''}/> <span>Không dùng màu nền</span></label>
+      <div class="dz-group" style="margin-top:8px">Bảng màu nhanh</div>
+      <div class="row wrap" style="gap:5px;margin-bottom:8px">
+        ${['#0f172a', '#2563eb', '#16a34a', '#dc2626', '#d97706', '#7c3aed', '#ffffff', '#f8fafc', '#f1f5f9', '#dbeafe', '#dcfce7', '#fef3c7', '#fee2e2'].map((c) => `<span class="dz-swatch" data-c="${c}" style="width:20px;height:20px;border-radius:4px;background:${c};border:1px solid #94a3b8;cursor:pointer;display:inline-block" title="Click để đặt màu nền: ${c} (giữ Shift để đặt màu chữ)"></span>`).join('')}
+      </div>
       <div class="field"><label>Viền</label>
-        <label class="checkbox mb"><input type="checkbox" id="p-border" ${e.border ? 'checked' : ''}/> <span>Hiển thị đường viền</span></label>
+        <div class="row gap mb">
+          <label class="checkbox" style="flex:1"><input type="checkbox" id="p-border" ${e.border ? 'checked' : ''}/> <span>Hiển thị đường viền</span></label>
+          <button type="button" class="btn xs ghost" id="p-border-all" title="Bật viền">Bật</button>
+          <button type="button" class="btn xs ghost" id="p-border-none" title="Tắt viền">Tắt</button>
+        </div>
         <div class="prop-row">
           <select id="p-bstyle">${[['solid', 'Nét liền'], ['dashed', 'Nét đứt'], ['dotted', 'Nét chấm'], ['double', 'Nét đôi']].map(([v, l]) => `<option value="${v}" ${e.borderStyle === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
           <input type="color" id="p-bcolor" value="${U.attr(e.borderColor || '#9ca3af')}" style="height:32px;padding:2px"/>
@@ -876,6 +942,16 @@
       if (el) el.addEventListener(ev || 'change', handler);
     };
     const set = (patch, rerenderProps) => { pushUndo(); Object.assign(e, patch); renderCanvas(); if (rerenderProps) renderProps(host); };
+    bind('#p-formula-btn', () => formulaBuilder(e), 'click');
+    bind('#p-border-all', () => set({ border: true, borderColor: e.borderColor || '#94a3b8' }, true), 'click');
+    bind('#p-border-none', () => set({ border: false }, true), 'click');
+    host.querySelectorAll('.dz-swatch').forEach((s) => {
+      s.onclick = (ev) => {
+        const c = s.dataset.c;
+        if (ev.shiftKey) set({ color: c }, true);
+        else set({ bgColor: c }, true);
+      };
+    });
     bind('#p-field', (ev) => {
       const f = D.fields.find((x) => x.key === ev.target.value);
       set({ field: ev.target.value, label: f ? f.label : '', format: f ? (f.type === 'money' ? 'money' : f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text') : 'text' }, true);
@@ -1031,11 +1107,18 @@
       <div class="dz-group">Bảng dữ liệu mẫu</div>
       <button class="btn sm block mb" id="r-preview">👁 Xem trước dữ liệu (20 dòng đầu)</button>
       <div id="r-data"></div>
-      <div class="dz-group">Khung mẫu nhanh</div>
-      <div class="tiny muted mb">Sinh lại bố cục từ danh sách trường (ghi đè band tiêu đề cột & chi tiết).</div>
-      <button class="btn sm block mb" id="r-quick-list">📋 Bảng danh sách (không nhóm)</button>
-      <button class="btn sm block mb" id="r-quick-group">📋 Bảng có nhóm + tổng nhóm</button>
-      <button class="btn sm block mb" id="r-quick-summary">📋 Bảng tổng hợp tài chính</button>
+      <div class="dz-group">Thuật sĩ & Bố cục nhanh</div>
+      <button class="btn sm block mb" id="r-wizard" style="background:var(--c-primary);color:#fff;font-weight:600">✨ Thuật sĩ tạo bảng (Table Wizard)</button>
+      <button class="btn sm block mb" id="r-fit-col">↔ Căn đều cột vừa khít trang</button>
+      <button class="btn sm block mb" id="r-formula">🧮 Trợ lý tạo công thức tổng hợp</button>
+      <button class="btn sm block mb" id="r-quick-list">📋 Bảng danh sách tiêu chuẩn</button>
+      <button class="btn sm block mb" id="r-quick-group">📑 Bảng có nhóm + tổng nhóm</button>
+      <button class="btn sm block mb" id="r-quick-summary">💰 Bảng tổng hợp tài chính</button>
+      <div class="dz-group">Sao lưu & Chuyển giao</div>
+      <div class="row gap mb">
+        <button class="btn sm flex" id="r-export-json">📤 Xuất JSON</button>
+        <button class="btn sm flex" id="r-import-json">📥 Nạp JSON</button>
+      </div>
       <div class="dz-group">Công cụ</div>
       <button class="btn sm block mb" id="r-clear-detail">🧹 Xoá trắng band chi tiết</button>
       <button class="btn sm block mb" id="r-clear-all">🧹 Xoá toàn bộ đối tượng</button>
@@ -1053,9 +1136,14 @@
           <tbody>${rows.map((r) => `<tr>${keys.map((k) => `<td>${U.esc(String(r[k] === null || r[k] === undefined ? '' : r[k]).slice(0, 22))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
       } catch (e) { box.innerHTML = `<div class="alert danger">${U.esc(e.message)}</div>`; }
     };
+    host.querySelector('#r-wizard').onclick = () => tableWizard();
+    host.querySelector('#r-fit-col').onclick = () => autoFitColumns();
+    host.querySelector('#r-formula').onclick = () => formulaBuilder();
     host.querySelector('#r-quick-list').onclick = () => quickTable('list');
     host.querySelector('#r-quick-group').onclick = () => quickTable('group');
     host.querySelector('#r-quick-summary').onclick = () => quickTable('summary');
+    host.querySelector('#r-export-json').onclick = () => exportJson();
+    host.querySelector('#r-import-json').onclick = () => importJson();
     host.querySelector('#r-clear-detail').onclick = () => { pushUndo(); D.design.bands.detail.elements = []; D.selection = []; renderCanvas(); };
     host.querySelector('#r-clear-all').onclick = async () => {
       if (!(await UI.confirm({ title: 'Xoá toàn bộ đối tượng?', message: 'Toàn bộ đối tượng trong mọi band sẽ bị xoá.', danger: true }))) return;
@@ -1070,6 +1158,412 @@
       D.design = res.data;
       render(); renderRight('rules');
     };
+  }
+
+  /** Tự động căn đều các cột vừa khít độ rộng trang */
+  function autoFitColumns() {
+    const contentW = getContentWidth();
+    const chEls = (D.design.bands.columnHeader && D.design.bands.columnHeader.elements) || [];
+    const dtEls = (D.design.bands.detail && D.design.bands.detail.elements) || [];
+    if (!chEls.length && !dtEls.length) return UI.toast('Thông báo', 'Không có cột nào trong band tiêu đề cột hoặc chi tiết để căn lề', 'warning');
+
+    pushUndo();
+    const refEls = chEls.length >= dtEls.length ? chEls : dtEls;
+    const sorted = refEls.slice().sort((a, b) => Number(a.x) - Number(b.x));
+    const totalOrigW = sorted.reduce((s, e) => s + (Number(e.w) || 10), 0);
+    if (totalOrigW <= 0) return;
+
+    const ratio = contentW / totalOrigW;
+    let curX = 0;
+
+    sorted.forEach((e, idx) => {
+      const isLast = idx === sorted.length - 1;
+      const newW = isLast ? Math.round((contentW - curX) * 10) / 10 : Math.round((Number(e.w) || 10) * ratio * 10) / 10;
+      const finalW = Math.max(4, newW);
+      e.x = Math.round(curX * 10) / 10;
+      e.w = finalW;
+
+      const otherList = refEls === chEls ? dtEls : chEls;
+      const matched = otherList.find((o) => (o.field && o.field === e.field) || Math.abs(Number(o.x) - Number(e.x)) < 5) || otherList[idx];
+      if (matched) {
+        matched.x = e.x;
+        matched.w = e.w;
+      }
+      curX += e.w;
+    });
+
+    renderCanvas();
+    renderRight('props');
+    UI.toast('Căn đều cột', `Đã tự động căn đều ${sorted.length} cột vừa khít độ rộng trang (${contentW.toFixed(0)} mm)`, 'success');
+  }
+
+  /** Thuật sĩ tạo lại bảng cột (Table Wizard) */
+  function tableWizard() {
+    let selectedKeys = new Set(
+      ((D.design.bands.detail && D.design.bands.detail.elements) || [])
+        .map((e) => e.field)
+        .filter(Boolean)
+    );
+    if (!selectedKeys.size) {
+      const priority = ['code', 'name', 'categoryName', 'departmentName', 'originalCost', 'status', 'purchaseDate', 'actualDate', 'amount', 'period', 'cost'];
+      priority.forEach((pk) => {
+        if (D.fields.some((f) => f.key === pk)) selectedKeys.add(pk);
+      });
+      D.fields.forEach((f) => {
+        if (selectedKeys.size < 6 && f.key !== 'id' && f.type !== 'json') selectedKeys.add(f.key);
+      });
+    }
+
+    const curGroupField = (D.design.groups && D.design.groups[0] && D.design.groups[0].field) || '';
+
+    const m = UI.modal({
+      title: '📋 Thuật sĩ tạo lại bảng cột (Table Wizard)',
+      subtitle: 'Chọn nhanh các cột, kiểu phân nhóm và tự động phân bổ độ rộng vừa khít trang in',
+      size: 'lg',
+      body: `
+        <div style="display:grid;grid-template-columns:1fr 280px;gap:16px;max-height:70vh;overflow:hidden">
+          <div style="display:flex;flex-direction:column;min-height:0;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <b>Danh sách trường dữ liệu</b>
+              <div style="display:flex;gap:6px">
+                <button type="button" class="btn sm ghost" id="tw-all">Chọn hết</button>
+                <button type="button" class="btn sm ghost" id="tw-none">Bỏ hết</button>
+              </div>
+            </div>
+            <input type="search" id="tw-search" placeholder="🔍 Lọc trường…" style="margin-bottom:8px"/>
+            <div id="tw-list" style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg-card);display:grid;grid-template-columns:1fr 1fr;gap:6px;align-content:start"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;overflow-y:auto">
+            <div class="field">
+              <label style="font-weight:600">Bố cục bảng</label>
+              <select id="tw-preset">
+                <option value="table">📊 Danh sách chuẩn</option>
+                <option value="grouped" ${curGroupField ? 'selected' : ''}>📑 Phân nhóm & tổng con</option>
+                <option value="financial">💰 Tổng hợp tài chính</option>
+                <option value="voucher">📜 Mẫu in chứng từ</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Trường gom nhóm</label>
+              <select id="tw-group">
+                <option value="">(Không gom nhóm)</option>
+                ${D.fields.map((f) => `<option value="${U.attr(f.key)}" ${f.key === curGroupField ? 'selected' : ''}>${U.esc(f.label || f.key)}</option>`).join('')}
+              </select>
+            </div>
+            <label class="checkbox">
+              <input type="checkbox" id="tw-stt" checked/>
+              <span>Thêm cột STT tự động</span>
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" id="tw-sum" checked/>
+              <span>Thêm dòng tổng cộng tiền ở chân trang</span>
+            </label>
+            <div class="alert info tiny" style="margin-top:auto">
+              💡 Bảng sẽ được thiết kế lại tối ưu hóa bề rộng cột tự động vừa vặn 100% trang in.
+            </div>
+          </div>
+        </div>
+      `,
+      footer: [
+        { label: 'Huỷ', onClick: (mm) => mm.close() },
+        { label: '🚀 Tạo lại bảng ngay', cls: 'primary', onClick: async (mm) => {
+          if (!selectedKeys.size) return UI.toast('Lỗi', 'Vui lòng chọn ít nhất 1 cột', 'warning');
+          const chosenFields = D.fields.filter((f) => selectedKeys.has(f.key));
+          const preset = mm.body.querySelector('#tw-preset').value;
+          const gKey = mm.body.querySelector('#tw-group').value;
+          const gObj = D.fields.find((f) => f.key === gKey);
+          const incSTT = mm.body.querySelector('#tw-stt').checked;
+          const autoSum = mm.body.querySelector('#tw-sum').checked;
+
+          pushUndo();
+          try {
+            const res = await API.post('/api/reports/blank-design', {
+              paperSize: D.design.paperSize,
+              orientation: D.design.orientation,
+              title: (D.template.name || 'BÁO CÁO').toUpperCase(),
+              fields: chosenFields,
+              layoutPreset: preset,
+              groupField: (preset === 'grouped' || gKey) ? gKey : null,
+              groupLabel: gObj ? gObj.label : null,
+              includeIndex: incSTT,
+              autoSum,
+            });
+
+            const newD = res.data;
+            D.design.bands.columnHeader = newD.bands.columnHeader;
+            D.design.bands.detail = newD.bands.detail;
+            D.design.bands.groupHeader = newD.bands.groupHeader;
+            D.design.bands.groupFooter = newD.bands.groupFooter;
+            if (autoSum || newD.bands.reportFooter) D.design.bands.reportFooter = newD.bands.reportFooter;
+            D.design.groups = newD.groups || [];
+            D.selection = [];
+            mm.close();
+            renderCanvas();
+            renderRight('props');
+            UI.toast('Hoàn tất', 'Đã tái tạo bảng cột thành công', 'success');
+          } catch (e) {
+            UI.toast('Lỗi', e.message, 'error');
+          }
+        } },
+      ],
+    });
+
+    const root = m.el;
+    const list = root.querySelector('#tw-list');
+    const search = root.querySelector('#tw-search');
+
+    function renderList(q) {
+      const kw = (q || '').toLowerCase().trim();
+      list.innerHTML = D.fields.filter((f) => f.type !== 'json' && (!kw || (f.label || '').toLowerCase().includes(kw) || f.key.toLowerCase().includes(kw))).map((f) => {
+        const chk = selectedKeys.has(f.key);
+        return `
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;border:1px solid ${chk ? 'var(--c-primary)' : 'var(--border)'};border-radius:4px;background:${chk ? 'var(--c-primary-light, rgba(37,99,235,0.06))' : 'transparent'};cursor:pointer">
+            <input type="checkbox" data-k="${U.attr(f.key)}" ${chk ? 'checked' : ''}/>
+            <span style="font-weight:${chk ? '600' : 'normal'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${U.esc(f.label || f.key)}</span>
+          </label>
+        `;
+      }).join('');
+
+      list.querySelectorAll('input[type="checkbox"]').forEach((c) => {
+        c.onchange = (ev) => {
+          const k = ev.target.dataset.k;
+          if (ev.target.checked) selectedKeys.add(k);
+          else selectedKeys.delete(k);
+          renderList(search.value);
+        };
+      });
+    }
+
+    search.oninput = () => renderList(search.value);
+    root.querySelector('#tw-all').onclick = () => {
+      D.fields.filter((f) => f.type !== 'json').forEach((f) => selectedKeys.add(f.key));
+      renderList(search.value);
+    };
+    root.querySelector('#tw-none').onclick = () => {
+      selectedKeys.clear();
+      renderList(search.value);
+    };
+
+    renderList();
+  }
+
+  /** Trợ lý tạo công thức tổng hợp trực quan */
+  function formulaBuilder(targetEl) {
+    const numFields = D.fields.filter((f) => f.type === 'money' || f.type === 'number');
+    const allFields = D.fields.slice();
+
+    const m = UI.modal({
+      title: '🧮 Trợ lý tạo công thức tổng hợp',
+      subtitle: 'Chọn hàm và trường dữ liệu để tự động sinh biểu thức tính toán',
+      size: 'md',
+      body: `
+        <div class="field">
+          <label style="font-weight:600">Hàm tính toán</label>
+          <select id="fb-fn">
+            <option value="SUM">SUM — Tính tổng giá trị</option>
+            <option value="COUNT">COUNT — Đếm số dòng dữ liệu</option>
+            <option value="AVG">AVG — Tính trung bình cộng</option>
+            <option value="MIN">MIN — Lấy giá trị nhỏ nhất</option>
+            <option value="MAX">MAX — Lấy giá trị lớn nhất</option>
+            <option value="FIRST">FIRST — Lấy giá trị đầu tiên</option>
+            <option value="LAST">LAST — Lấy giá trị cuối cùng</option>
+          </select>
+        </div>
+        <div class="field" id="fb-field-box">
+          <label style="font-weight:600">Trường dữ liệu áp dụng</label>
+          <select id="fb-field">
+            ${allFields.map((f) => `<option value="${U.attr(f.key)}">${U.esc(f.label || f.key)} (${f.type})</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label style="font-weight:600">Phạm vi tính toán</label>
+          <select id="fb-scope">
+            <option value="report">Toàn bộ báo cáo (Report Level)</option>
+            <option value="group">Trong nhóm dữ liệu hiện tại (Group Level)</option>
+            <option value="page">Trong trang in hiện tại (Page Level)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Tiền tố nhãn (Prefix)</label>
+          <input type="text" id="fb-prefix" placeholder="vd: Tổng cộng: "/>
+        </div>
+        <div class="field">
+          <label>Hậu tố (Suffix)</label>
+          <input type="text" id="fb-suffix" placeholder="vd: VNĐ"/>
+        </div>
+        <div class="field">
+          <label style="font-weight:600">Biểu thức được tạo</label>
+          <div id="fb-preview" class="mono" style="padding:10px;background:var(--bg-muted);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--c-primary);font-weight:600"></div>
+        </div>
+      `,
+      footer: [
+        { label: 'Huỷ', onClick: (mm) => mm.close() },
+        { label: 'Chèn công thức', cls: 'primary', onClick: (mm) => {
+          const root = mm.body;
+          const fn = root.querySelector('#fb-fn').value;
+          const field = root.querySelector('#fb-field').value;
+          const scope = root.querySelector('#fb-scope').value;
+          const prefix = root.querySelector('#fb-prefix').value;
+          const suffix = root.querySelector('#fb-suffix').value;
+
+          let formula = `{${fn}(${fn === 'COUNT' ? (scope === 'group' ? 'group' : '') : field + (scope === 'group' ? ',group' : scope === 'page' ? ',page' : '')})}`;
+          let fullText = (prefix ? prefix + ' ' : '') + formula + (suffix ? ' ' + suffix : '');
+
+          pushUndo();
+          if (targetEl) {
+            targetEl.expr = formula;
+            targetEl.text = fullText;
+            if (fn === 'SUM' || fn === 'AVG' || fn === 'MIN' || fn === 'MAX') {
+              const fObj = D.fields.find((f) => f.key === field);
+              if (fObj && fObj.type === 'money') targetEl.format = 'money';
+              else if (fObj && fObj.type === 'number') targetEl.format = 'number';
+            } else if (fn === 'COUNT') {
+              targetEl.format = 'number';
+            }
+          } else {
+            const contentW = getContentWidth();
+            const bandKey = D.design.bands.groupFooter ? 'groupFooter' : 'reportFooter';
+            const band = D.design.bands[bandKey] = D.design.bands[bandKey] || { height: 8, elements: [] };
+            band.elements.push({
+              id: 'expr_' + Date.now().toString(36),
+              type: 'expr',
+              x: snap(contentW * 0.4),
+              y: 1,
+              w: snap(contentW * 0.6),
+              h: 7,
+              text: fullText,
+              expr: formula,
+              format: 'money',
+              bold: true,
+              fontSize: 10,
+              align: 'right',
+            });
+          }
+
+          mm.close();
+          renderCanvas();
+          renderRight('props');
+          UI.toast('Đã chèn công thức', fullText, 'success');
+        } },
+      ],
+    });
+
+    const root = m.el;
+    const fnSel = root.querySelector('#fb-fn');
+    const fSel = root.querySelector('#fb-field');
+    const sSel = root.querySelector('#fb-scope');
+    const pInp = root.querySelector('#fb-prefix');
+    const sufInp = root.querySelector('#fb-suffix');
+    const prev = root.querySelector('#fb-preview');
+
+    function updatePreview() {
+      const fn = fnSel.value;
+      const field = fSel.value;
+      const scope = sSel.value;
+      const prefix = pInp.value;
+      const suffix = sufInp.value;
+
+      let formula = `{${fn}(${fn === 'COUNT' ? (scope === 'group' ? 'group' : '') : field + (scope === 'group' ? ',group' : scope === 'page' ? ',page' : '')})}`;
+      let full = (prefix ? prefix + ' ' : '') + formula + (suffix ? ' ' + suffix : '');
+      prev.textContent = full;
+    }
+
+    fnSel.onchange = () => {
+      root.querySelector('#fb-field-box').style.display = fnSel.value === 'COUNT' ? 'none' : 'block';
+      updatePreview();
+    };
+    fSel.onchange = updatePreview;
+    sSel.onchange = updatePreview;
+    pInp.oninput = updatePreview;
+    sufInp.oninput = updatePreview;
+
+    if (numFields.length) fSel.value = numFields[0].key;
+    updatePreview();
+  }
+
+  /** Xuất mẫu thiết kế ra JSON */
+  function exportJson() {
+    const jsonStr = JSON.stringify(D.design, null, 2);
+    UI.modal({
+      title: '📤 Xuất mẫu thiết kế ra JSON',
+      subtitle: 'Sao chép cấu hình mẫu để lưu trữ dự phòng hoặc chuyển giao cho môi trường khác',
+      size: 'lg',
+      body: `
+        <div class="field">
+          <label>Mã JSON mẫu thiết kế:</label>
+          <textarea id="dz-json-out" rows="16" class="mono" readonly style="font-size:12px;background:var(--bg-muted);width:100%">${U.esc(jsonStr)}</textarea>
+        </div>
+      `,
+      footer: [
+        { label: 'Đóng', onClick: (mm) => mm.close() },
+        { label: '📋 Sao chép', cls: 'primary', onClick: () => {
+          navigator.clipboard.writeText(jsonStr).then(() => UI.toast('Thành công', 'Đã sao chép JSON vào clipboard', 'success'));
+        } },
+        { label: '💾 Tải tệp .json', cls: 'outline', onClick: () => {
+          const blob = new Blob([jsonStr], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = (D.template.name || 'report-design') + '.json';
+          a.click();
+          URL.revokeObjectURL(url);
+        } },
+      ],
+    });
+  }
+
+  /** Nhập mẫu thiết kế từ JSON */
+  function importJson() {
+    const m = UI.modal({
+      title: '📥 Nhập mẫu thiết kế từ JSON',
+      subtitle: 'Dán nội dung JSON hoặc chọn tệp .json để nạp vào trình thiết kế',
+      size: 'lg',
+      body: `
+        <div class="field">
+          <label>Chọn tệp .json từ máy tính:</label>
+          <input type="file" id="dz-file-in" accept=".json,application/json" style="margin-bottom:10px"/>
+        </div>
+        <div class="field">
+          <label>Hoặc dán mã JSON trực tiếp tại đây:</label>
+          <textarea id="dz-json-in" rows="12" class="mono" placeholder="Dán nội dung JSON vào đây..." style="font-size:12px;width:100%"></textarea>
+        </div>
+        <div class="alert warning">⚠️ Lưu ý: Thao tác này sẽ ghi đè thiết kế hiện tại trên màn hình. Bạn có thể bấm Hoàn tác (Ctrl+Z) nếu cần khôi phục lại.</div>
+      `,
+      footer: [
+        { label: 'Huỷ', onClick: (mm) => mm.close() },
+        { label: 'Nạp thiết kế', cls: 'primary', onClick: (mm) => {
+          const text = (mm.body.querySelector('#dz-json-in').value || '').trim();
+          if (!text) return UI.toast('Lỗi', 'Chưa có nội dung JSON để nạp', 'warning');
+          try {
+            const parsed = JSON.parse(text);
+            if (!parsed.bands || typeof parsed.bands !== 'object') {
+              throw new Error('Dữ liệu JSON không hợp lệ: thiếu cấu trúc bands');
+            }
+            pushUndo();
+            D.design = parsed;
+            D.selection = [];
+            render();
+            renderRight('props');
+            mm.close();
+            UI.toast('Thành công', 'Đã nạp mẫu thiết kế từ JSON', 'success');
+          } catch (e) {
+            UI.toast('Lỗi JSON', e.message, 'error');
+          }
+        } },
+      ],
+    });
+
+    const finp = m.el.querySelector('#dz-file-in');
+    const tinp = m.el.querySelector('#dz-json-in');
+    if (finp && tinp) {
+      finp.onchange = (ev) => {
+        const file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => { tinp.value = e.target.result; };
+        reader.readAsText(file);
+      };
+    }
   }
 
   /** Sinh nhanh bố cục bảng */

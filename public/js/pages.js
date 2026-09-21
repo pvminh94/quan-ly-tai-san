@@ -1059,58 +1059,271 @@
   };
 
   Pages.newReportDialog = async function (done) {
-    const dsRes = await API.get('/api/reports/datasets');
-    const datasets = dsRes.data || [];
+    UI.loading(true, 'Đang nạp nguồn dữ liệu…');
+    let datasets = [];
+    try {
+      const dsRes = await API.get('/api/reports/datasets');
+      datasets = dsRes.data || [];
+    } catch (e) {
+      UI.loading(false);
+      return UI.toast('Lỗi', 'Không tải được danh sách nguồn dữ liệu: ' + e.message, 'error');
+    }
+    UI.loading(false);
+
+    let curDataset = datasets[0] || { key: 'assets', label: 'Tài sản', fields: [] };
+    let curFields = curDataset.fields || [];
+    let selectedFieldKeys = new Set();
+
+    function pickDefaultFields(fList) {
+      const keys = new Set();
+      const priority = ['code', 'name', 'categoryName', 'departmentName', 'originalCost', 'status', 'purchaseDate', 'actualDate', 'amount', 'period', 'cost', 'reason'];
+      priority.forEach((pk) => {
+        if (fList.some((f) => f.key === pk)) keys.add(pk);
+      });
+      fList.forEach((f) => {
+        if (keys.size < 6 && f.key !== 'id' && f.type !== 'json') keys.add(f.key);
+      });
+      return keys;
+    }
+
+    selectedFieldKeys = pickDefaultFields(curFields);
+
     const m = UI.modal({
-      title: 'Thiết kế mẫu báo cáo mới',
-      subtitle: 'Chọn nguồn dữ liệu, hệ thống sẽ tạo bố cục mẫu để bạn chỉnh sửa',
-      size: 'lg',
+      title: '✨ Thuật sĩ thiết kế mẫu báo cáo mới',
+      subtitle: 'Tùy chọn cột dữ liệu, kiểu phân nhóm và bố cục — hệ thống tự động căn chỉnh vừa khít trang in',
+      size: 'xl',
       body: `
-        <div class="form-grid">
-          <div class="field"><label>Tên mẫu báo cáo <span class="req">*</span></label><input type="text" id="nr-name" placeholder="vd: Báo cáo tài sản theo kho"/></div>
-          <div class="field"><label>Nguồn dữ liệu <span class="req">*</span></label><select id="nr-ds">${datasets.map((d) => `<option value="${U.attr(d.key)}">${U.esc(d.group ? d.group + ' — ' : '')}${U.esc(d.label)} (${d.fieldCount} trường)</option>`).join('')}</select></div>
-          <div class="field span-2"><label>Mô tả</label><input type="text" id="nr-desc" placeholder="Mục đích sử dụng của báo cáo"/></div>
-          <div class="field"><label>Khổ giấy</label><select id="nr-paper"><option>A4</option><option>A3</option><option>A5</option><option>Letter</option><option>Legal</option></select></div>
-          <div class="field"><label>Hướng giấy</label><select id="nr-orient"><option value="portrait">Dọc (Portrait)</option><option value="landscape">Ngang (Landscape)</option></select></div>
+        <div style="display:grid;grid-template-columns:360px 1fr;gap:20px;max-height:75vh;overflow:hidden">
+          <!-- Cột trái: Cấu hình chung -->
+          <div style="overflow-y:auto;padding-right:10px;display:flex;flex-direction:column;gap:12px">
+            <div class="field">
+              <label style="font-weight:600">Tên mẫu báo cáo <span class="req">*</span></label>
+              <input type="text" id="nr-name" placeholder="vd: Báo cáo tổng hợp tài sản theo kho" autofocus/>
+            </div>
+            <div class="field">
+              <label style="font-weight:600">Nguồn dữ liệu <span class="req">*</span></label>
+              <select id="nr-ds">
+                ${datasets.map((d) => `<option value="${U.attr(d.key)}">${U.esc(d.group ? d.group + ' — ' : '')}${U.esc(d.label)} (${d.fieldCount || (d.fields || []).length} trường)</option>`).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label>Mô tả mục đích</label>
+              <input type="text" id="nr-desc" placeholder="Mục đích sử dụng của báo cáo"/>
+            </div>
+            <div class="prop-row">
+              <div class="field">
+                <label>Khổ giấy</label>
+                <select id="nr-paper">
+                  <option value="A4" selected>A4 (210×297 mm)</option>
+                  <option value="A3">A3 (297×420 mm)</option>
+                  <option value="A5">A5 (148×210 mm)</option>
+                  <option value="Letter">Letter</option>
+                  <option value="Legal">Legal</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Hướng in</label>
+                <select id="nr-orient">
+                  <option value="portrait" selected>Dọc (Portrait)</option>
+                  <option value="landscape">Ngang (Landscape)</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label style="font-weight:600">Bố cục mẫu ban đầu (Preset)</label>
+              <select id="nr-preset">
+                <option value="table">📊 Bảng danh sách tiêu chuẩn</option>
+                <option value="grouped">📑 Báo cáo phân nhóm &amp; tổng con</option>
+                <option value="financial">💰 Báo cáo tài chính (kèm 3 chữ ký)</option>
+                <option value="voucher">📜 Mẫu in chứng từ / biên bản (ký 2 bên)</option>
+              </select>
+            </div>
+            <div class="field" id="nr-group-box">
+              <label>Trường gom nhóm (Group By)</label>
+              <select id="nr-group-field"></select>
+            </div>
+            <div style="background:var(--bg-muted);padding:10px;border-radius:8px">
+              <label class="checkbox mb" style="font-size:12.5px;cursor:pointer">
+                <input type="checkbox" id="nr-include-index" checked/>
+                <span>Thêm cột Số thứ tự (STT)</span>
+              </label>
+              <label class="checkbox" style="font-size:12.5px;cursor:pointer">
+                <input type="checkbox" id="nr-auto-sum" checked/>
+                <span>Tự động tính tổng tiền / số ở chân trang</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Cột phải: Chọn cột dữ liệu -->
+          <div style="display:flex;flex-direction:column;min-height:0;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div>
+                <b style="font-size:13px">Chọn các cột in trên báo cáo</b>
+                <span class="muted tiny" id="nr-col-count" style="margin-left:8px"></span>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button type="button" class="btn sm ghost" id="nr-btn-opt" title="Chọn 6 trường quan trọng nhất">⚡ 6 cột tối ưu</button>
+                <button type="button" class="btn sm ghost" id="nr-btn-all">Chọn tất cả</button>
+                <button type="button" class="btn sm ghost" id="nr-btn-none">Bỏ chọn</button>
+              </div>
+            </div>
+            <input type="search" id="nr-col-search" placeholder="🔍 Lọc nhanh trường dữ liệu…" style="margin-bottom:8px"/>
+            <div id="nr-col-list" style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg-card);display:grid;grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));gap:6px;align-content:start"></div>
+            <div class="hint tiny muted" style="margin-top:6px">
+              💡 Hệ thống tự động phân bổ bề rộng từng cột vừa khít 100% trang in. Bạn có thể kéo thả, căn chỉnh chi tiết trong Trình thiết kế sau khi tạo.
+            </div>
+          </div>
         </div>
-        <div class="alert info">Sau khi tạo, bạn sẽ vào trình thiết kế để kéo thả các trường dữ liệu, định dạng, nhóm, sắp xếp và xem trước.</div>`,
+      `,
       footer: [
         { label: 'Huỷ', onClick: (mm) => mm.close() },
         { label: '🎨 Tạo và mở trình thiết kế', cls: 'primary', onClick: async (mm) => {
-          const name = mm.body.querySelector('#nr-name').value.trim();
+          const root = mm.body;
+          const name = (root.querySelector('#nr-name').value || '').trim();
           if (!name) return UI.toast('Thiếu tên', 'Vui lòng nhập tên mẫu báo cáo', 'warning');
-          const dataset = mm.body.querySelector('#nr-ds').value;
-          const ds = datasets.find((d) => d.key === dataset);
-          const fields = (ds.fields || []).slice(0, 6);
-          // Lấy mẫu thiết kế mặc định từ server để đồng bộ
-          const blankRes = await API.get('/api/reports/blank-design');
-          const design = blankRes.data;
-          design.paperSize = mm.body.querySelector('#nr-paper').value;
-          design.orientation = mm.body.querySelector('#nr-orient').value;
-          // Đổi nhãn tiêu đề
-          if (design.bands.reportTitle && design.bands.reportTitle.elements[2]) design.bands.reportTitle.elements[2].text = name.toUpperCase();
-          // Gán các cột mặc định theo dataset
-          ['columnHeader', 'detail'].forEach((band) => {
-            const els = (design.bands[band] && design.bands[band].elements) || [];
-            const fieldEls = els.filter((e) => e.type === 'field').sort((a, b) => a.x - b.x);
-            fieldEls.forEach((e, i) => {
-              const f = fields[i + 1] || fields[0];
-              if (f) { e.field = f.key; e.label = f.label; }
-            });
-          });
+
+          const datasetKey = root.querySelector('#nr-ds').value;
+          const ds = datasets.find((d) => d.key === datasetKey) || curDataset;
+          const allF = ds.fields || [];
+
+          if (selectedFieldKeys.size === 0) return UI.toast('Chưa chọn cột', 'Vui lòng chọn ít nhất 1 cột hiển thị', 'warning');
+
+          const chosenFields = allF.filter((f) => selectedFieldKeys.has(f.key));
+          const paperSize = root.querySelector('#nr-paper').value;
+          const orientation = root.querySelector('#nr-orient').value;
+          const preset = root.querySelector('#nr-preset').value;
+          const groupField = root.querySelector('#nr-group-field').value;
+          const groupObj = allF.find((f) => f.key === groupField);
+          const includeIndex = root.querySelector('#nr-include-index').checked;
+          const autoSum = root.querySelector('#nr-auto-sum').checked;
+          const desc = (root.querySelector('#nr-desc').value || '').trim();
+
+          UI.loading(true, 'Đang khởi tạo mẫu báo cáo…');
           try {
-            const created = await API.post('/api/entities/report_templates', {
-              name, description: mm.body.querySelector('#nr-desc').value, dataset, design,
-              paperSize: design.paperSize, orientation: design.orientation,
+            const blankRes = await API.post('/api/reports/blank-design', {
+              paperSize,
+              orientation,
+              title: name.toUpperCase(),
+              fields: chosenFields,
+              layoutPreset: preset,
+              groupField: (preset === 'grouped' || groupField) ? groupField : null,
+              groupLabel: groupObj ? groupObj.label : null,
+              includeIndex,
+              autoSum,
             });
+
+            const design = blankRes.data;
+
+            const created = await API.post('/api/entities/report_templates', {
+              name,
+              description: desc,
+              dataset: datasetKey,
+              design,
+              paperSize,
+              orientation,
+            });
+
+            UI.loading(false);
             mm.close();
             UI.toast('Đã tạo mẫu báo cáo', created.data.code, 'success');
             App.Router.navigate('/reports/designer/' + created.data.id);
             if (done) done();
-          } catch (e) { UI.toast('Lỗi', e.message, 'error'); }
+          } catch (err) {
+            UI.loading(false);
+            UI.toast('Lỗi tạo mẫu', err.message, 'error');
+          }
         } },
       ],
     });
+
+    const root = m.el;
+    const dsSel = root.querySelector('#nr-ds');
+    const colList = root.querySelector('#nr-col-list');
+    const colCount = root.querySelector('#nr-col-count');
+    const colSearch = root.querySelector('#nr-col-search');
+    const groupSel = root.querySelector('#nr-group-field');
+    const presetSel = root.querySelector('#nr-preset');
+
+    function typeBadge(t) {
+      if (t === 'money') return '<span class="badge" style="background:#dcfce7;color:#15803d;font-size:10px">₫ Tiền</span>';
+      if (t === 'number') return '<span class="badge" style="background:#e0e7ff;color:#3730a3;font-size:10px"># Số</span>';
+      if (t === 'date' || t === 'datetime') return '<span class="badge" style="background:#fef3c7;color:#92400e;font-size:10px">📅 Ngày</span>';
+      return '<span class="badge soft" style="font-size:10px">¶ Chữ</span>';
+    }
+
+    function renderColumns(filterText) {
+      const q = (filterText || '').toLowerCase().trim();
+      const filtered = curFields.filter((f) => {
+        if (!q) return true;
+        return (f.label || '').toLowerCase().includes(q) || (f.key || '').toLowerCase().includes(q);
+      });
+
+      colList.innerHTML = filtered.map((f) => {
+        const checked = selectedFieldKeys.has(f.key);
+        return `
+          <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid ${checked ? 'var(--c-primary)' : 'var(--border)'};border-radius:6px;background:${checked ? 'var(--c-primary-light, rgba(37,99,235,0.06))' : 'var(--bg-card)'};cursor:pointer;user-select:none;font-size:12px">
+            <input type="checkbox" data-key="${U.attr(f.key)}" ${checked ? 'checked' : ''} style="margin:0;cursor:pointer"/>
+            <div style="flex:1;min-width:0;overflow:hidden">
+              <div style="font-weight:${checked ? '600' : 'normal'};white-space:nowrap;text-overflow:ellipsis;overflow:hidden">${U.esc(f.label || f.key)}</div>
+              <div class="mono muted tiny">${U.esc(f.key)}</div>
+            </div>
+            ${typeBadge(f.type)}
+          </label>`;
+      }).join('') || '<div class="muted tiny span-all" style="padding:12px;text-align:center">Không tìm thấy trường nào phù hợp</div>';
+
+      colCount.textContent = `(Đã chọn ${selectedFieldKeys.size} / ${curFields.length} cột)`;
+
+      colList.querySelectorAll('input[type="checkbox"]').forEach((chk) => {
+        chk.onchange = (ev) => {
+          const k = ev.target.dataset.key;
+          if (ev.target.checked) selectedFieldKeys.add(k);
+          else selectedFieldKeys.delete(k);
+          renderColumns(colSearch.value);
+        };
+      });
+    }
+
+    function renderGroupOptions() {
+      const groupCandidates = curFields.filter((f) => f.type === 'string' || f.key.endsWith('Name') || f.key.includes('period') || f.key.includes('status'));
+      groupSel.innerHTML = '<option value="">(Không gom nhóm)</option>' + (groupCandidates.length ? groupCandidates : curFields).map((f) => `<option value="${U.attr(f.key)}">${U.esc(f.label || f.key)}</option>`).join('');
+
+      const preset = presetSel.value;
+      if (preset === 'grouped') {
+        const bestG = groupCandidates.find((f) => f.key.endsWith('Name')) || groupCandidates[0];
+        if (bestG) groupSel.value = bestG.key;
+      }
+    }
+
+    dsSel.onchange = () => {
+      const k = dsSel.value;
+      curDataset = datasets.find((d) => d.key === k) || { key: k, fields: [] };
+      curFields = curDataset.fields || [];
+      selectedFieldKeys = pickDefaultFields(curFields);
+      renderColumns(colSearch.value);
+      renderGroupOptions();
+    };
+
+    colSearch.oninput = () => renderColumns(colSearch.value);
+
+    root.querySelector('#nr-btn-opt').onclick = () => {
+      selectedFieldKeys = pickDefaultFields(curFields);
+      renderColumns(colSearch.value);
+    };
+
+    root.querySelector('#nr-btn-all').onclick = () => {
+      selectedFieldKeys = new Set(curFields.filter((f) => f.key !== 'id' && f.type !== 'json').map((f) => f.key));
+      renderColumns(colSearch.value);
+    };
+
+    root.querySelector('#nr-btn-none').onclick = () => {
+      selectedFieldKeys.clear();
+      renderColumns(colSearch.value);
+    };
+
+    presetSel.onchange = () => renderGroupOptions();
+
+    renderColumns();
+    renderGroupOptions();
   };
 
   Pages.runReportDialog = async function (template) {

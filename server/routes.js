@@ -2064,7 +2064,20 @@ function register(router) {
   router.post('/api/reports/preview', handleReportPreview);
   router.post('/api/reports/render', handleReportRender);
   router.post('/api/reports/templates/clone', handleReportTemplateClone);
-  router.get('/api/reports/blank-design', (ctx) => ok(ctx.res, reports.blankDesign()));
+  router.get('/api/reports/blank-design', (ctx) => {
+    const q = ctx.url.searchParams;
+    const paperSize = q.get('paperSize') || 'A4';
+    const orientation = q.get('orientation') || 'portrait';
+    const title = q.get('title') || '';
+    const dataset = q.get('dataset');
+    let fields = null;
+    if (dataset) {
+      const allDs = service.reportDatasets();
+      if (allDs[dataset]) fields = allDs[dataset].fields;
+    }
+    ok(ctx.res, reports.blankDesign({ paperSize, orientation, title, fields }));
+  });
+  router.post('/api/reports/blank-design', (ctx) => ok(ctx.res, reports.blankDesign(ctx.body || {})));
 
   /* ---- Nghiệp vụ đặc thù ---- */
   router.post('/api/depreciations/run', handleRunDepreciation);
