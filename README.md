@@ -252,8 +252,16 @@ Mỗi mẫu hệ thống được gắn bộ tham số phù hợp với nguồn 
 - Token trong chuỗi: `{field}`, `{company.name}`, `{params.x}`, `{date}`, `{time}`, `{page}`, `{pages}`, `{rowIndex}`, `{footer}`.
 - Hàm tổng hợp: `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `COUNT_DISTINCT`, `FIRST`, `LAST`, `CONCAT` với phạm vi `report` / `group` / `page`.
 
-### 6.5 Thao tác
-Kéo từ danh sách trường (49 trường với dataset *assets*) hoặc từ thanh công cụ vào dải in; kéo–thả di chuyển, 8 tay nắm đổi kích thước, chọn nhiều đối tượng, canh lề & phân bố đều, nhân bản, thứ tự lớp, **lưới + bám lưới**, **ghost preview** (xem dữ liệu mẫu thật mờ phía sau), phóng to/thu nhỏ, hoàn tác/làm lại.
+### 6.5 Thao tác & Thuật sĩ thiết kế (Wizard)
+- **Thuật sĩ tạo mẫu báo cáo 2 cột**: Khi bấm **＋ Thiết kế mẫu mới**, hộp thoại trực quan 2 cột cho phép chọn nhanh các cột dữ liệu theo từng dataset (kèm tìm kiếm trường, huy hiệu định dạng số/tiền/ngày/chữ), chọn 4 kiểu bố cục sẵn (*Danh sách chuẩn, Phân nhóm kèm tổng con, Báo cáo tài chính 3 chữ ký, Chứng từ biên bản 2 bên*), chọn trường gom nhóm, tự sinh cột STT và dòng tổng cộng chân trang.
+- **Tự động tính độ rộng cột vừa khít 100% trang in**: Tự động tính toán tỷ trọng bề rộng từng cột dựa theo bản chất trường (mã 24mm, tên 55mm, tiền 28mm, STT 12mm...) và chuẩn hoá vừa khít 100% độ rộng in ấn của mọi khổ giấy (A4, A3, A5, Letter, Legal, Dọc/Ngang).
+- **Thuật sĩ tái tạo bảng (Table Wizard)**: Trong trình thiết kế, bấm `📋 Bảng` để chọn lại trường, đổi nhóm hoặc tạo lại cấu trúc bảng bất kỳ lúc nào mà không cần kéo thả từng cột thủ công.
+- **Căn đều các cột vừa khít trang (Auto-fit Columns)**: Bấm `↔ Căn cột` trên thanh công cụ để tự động cân đối lại tỷ lệ toàn bộ các cột trong dải tiêu đề và dải chi tiết vừa vặn chính xác lề trang in.
+- **Trợ lý tạo công thức trực quan (Formula Builder)**: Bấm `🧮 Công thức` để mở hộp thoại hỗ trợ chọn hàm tính toán (`SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `FIRST`, `LAST`), chọn trường số/tiền và phạm vi (*Toàn báo cáo, Nhóm hiện tại, Trang in*) kèm tiền tố/hậu tố nhãn và xem trước chuỗi công thức sinh ra.
+- **Xuất / Nhập thiết kế qua JSON**: Bấm `📤 JSON` hoặc `📥 Nạp` để sao chép mã cấu hình, tải tệp `.json` lưu trữ dự phòng hoặc nạp lại mẫu thiết kế giữa các hệ thống/môi trường khác nhau.
+- **Căn chỉnh thông minh đối tượng đơn lẻ**: Khi chọn 1 đối tượng duy nhất, các thao tác căn lề sẽ căn đối tượng so với toàn bộ khổ trang in (căn giữa trang ngang, kéo dãn toàn bộ bề rộng trang).
+- **Bảng màu nhanh (Color Swatches) & Viền nhanh**: 14 ô màu thông dụng để đổi màu nền (hoặc giữ Shift để đổi màu chữ) chỉ với 1 cú nhấp chuột; nút bật/tắt viền nhanh.
+- Kéo từ danh sách trường (49 trường với dataset *assets*) hoặc từ thanh công cụ vào dải in; kéo–thả di chuyển, 8 tay nắm đổi kích thước, chọn nhiều đối tượng, canh lề & phân bố đều, nhân bản, thứ tự lớp, **lưới + bám lưới**, **ghost preview** (xem dữ liệu mẫu thật mờ phía sau), phóng to/thu nhỏ, hoàn tác/làm lại.
 
 Phím tắt: `Ctrl+S` lưu · `Ctrl+Z` / `Ctrl+Y` hoàn tác/làm lại · `Ctrl+D` nhân bản · `Ctrl+C/V` sao chép/dán · `F5` xem trước · mũi tên di chuyển 1 mm (`Shift` + mũi tên 10 mm) · `Delete` xoá.
 
