@@ -59,7 +59,7 @@ quan-ly-tai-san/
 │  │  └─ zip.js                # đóng gói ZIP để tạo .docx/.xlsx không cần thư viện
 │  └─ tools/
 │     ├─ reset-seed.js         # khởi tạo lại dữ liệu mẫu (có sao lưu trước)
-│     ├─ smoke-test.js         # kiểm thử API đầu-cuối (185 phép kiểm tra)
+│     ├─ smoke-test.js         # kiểm thử API đầu-cuối (190 phép kiểm tra)
 │     ├─ ui-test.js            # kiểm thử giao diện bằng DOM thật (jsdom, tuỳ chọn)
 │     └─ qr-test.js            # kiểm chứng mã QR bằng bộ giải mã độc lập (tuỳ chọn)
 └─ public/                     # SPA
@@ -102,20 +102,20 @@ Dữ liệu nằm ở `data/db.json`. Xoá thư mục `data/` rồi chạy lại
 ## 4. Kiểm thử
 
 ```bash
-npm test                       # 185 phép kiểm tra API đầu-cuối (tự khởi động máy chủ ở cổng 3111)
+npm test                       # 190 phép kiểm tra API đầu-cuối (tự khởi động máy chủ ở cổng 3111)
 node server/tools/smoke-test.js --port 3000     # chạy trên máy chủ đang mở
 node server/tools/smoke-test.js --keep          # giữ lại dữ liệu kiểm thử để xem
 
 # Kiểm thử giao diện (cần jsdom, chỉ dùng khi kiểm thử):
 npm install --no-save jsdom
-node server/tools/ui-test.js 3000               # duyệt 35 đường dẫn, 73 phép kiểm tra, bắt lỗi JS
+node server/tools/ui-test.js 3000               # duyệt 35 đường dẫn, 77 phép kiểm tra, bắt lỗi JS
 
 # Kiểm chứng mã QR bằng bộ giải mã độc lập (cần ZXing, chỉ dùng khi kiểm thử):
 npm install --no-save @zxing/library qrcode-generator
 node server/tools/qr-test.js                    # 147 phép kiểm chứng QR + mã vạch Code 128
 ```
 
-`ui-test.js` gồm **73 phép kiểm tra**: nạp 8 mô-đun SPA, đăng nhập, dựng menu theo phân quyền, duyệt toàn bộ 34 đường dẫn (không phát sinh lỗi JavaScript), tìm kiếm nhanh, biểu đồ SVG, biểu mẫu sinh theo metadata, Trình thiết kế báo cáo (dải in, phần tử, ghost preview), **hộp thoại xác nhận trả về đúng giá trị**, **xoá bản ghi thật qua giao diện**, **trang quét mã** (khung camera, quét thử, tra cứu mã, đổi kết quả, lịch sử, tiến độ, hoàn tác, hộp thoại in tem) và **toàn bộ luồng đăng xuất → đăng nhập lại** (cookie bị xoá, phiên thu hồi, quay về màn hình đăng nhập). Cả hai bộ kiểm thử đều tự dọn dẹp dữ liệu: dòng kiểm kê, tài sản, bản ghi nghiệp vụ đều được trả về đúng trạng thái trước khi chạy (chỉ ghi thêm **nhật ký hệ thống** và phiên đăng nhập — đúng như khi dùng thật), nên chạy lại nhiều lần cũng không làm lệch dữ liệu mẫu.
+`ui-test.js` gồm **77 phép kiểm tra**: nạp 8 mô-đun SPA, đăng nhập, dựng menu theo phân quyền, duyệt toàn bộ 34 đường dẫn (không phát sinh lỗi JavaScript), tìm kiếm nhanh, biểu đồ SVG, biểu mẫu sinh theo metadata, Trình thiết kế báo cáo (dải in, phần tử, ghost preview), **hộp thoại xác nhận trả về đúng giá trị**, **xoá bản ghi thật qua giao diện**, **trang quét mã** (khung camera, quét thử, tra cứu mã, đổi kết quả, lịch sử, tiến độ, hoàn tác, hộp thoại in tem) và **toàn bộ luồng đăng xuất → đăng nhập lại** (cookie bị xoá, phiên thu hồi, quay về màn hình đăng nhập). Cả hai bộ kiểm thử đều tự dọn dẹp dữ liệu: dòng kiểm kê, tài sản, bản ghi nghiệp vụ đều được trả về đúng trạng thái trước khi chạy (chỉ ghi thêm **nhật ký hệ thống** và phiên đăng nhập — đúng như khi dùng thật), nên chạy lại nhiều lần cũng không làm lệch dữ liệu mẫu.
 
 `qr-test.js` gồm **147 phép kiểm chứng** cho cả mã QR và mã vạch in trên tem:
 
@@ -129,7 +129,7 @@ node server/tools/qr-test.js                    # 147 phép kiểm chứng QR + 
 
 Công cụ này cần cài thêm thư viện kiểm thử (`@zxing/library`, tuỳ chọn `qrcode-generator`); ứng dụng chạy thật không phụ thuộc chúng. Bộ kiểm thử chỉ chạy khi bạn cài thư viện kiểm thử — ứng dụng không phụ thuộc chúng.
 
-`smoke-test.js` gồm **185 phép kiểm tra**: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất, mọi mẫu hệ thống phải ra dữ liệu), 9 chứng từ in, **quét mã QR/mã vạch** (bộ sinh QR, tra cứu mã, luồng quét kiểm kê, tem có mã QR), và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
+`smoke-test.js` gồm **190 phép kiểm tra**: sức khoẻ hệ thống & chặn truy cập tệp ngoài, xác thực & phân quyền (nhân viên bị chặn 403), CRUD + tìm kiếm không dấu + sắp xếp + lọc + xuất CSV + nhập JSON + thùng rác, toàn bộ luồng nghiệp vụ (cấp phát → điều chuyển → bảo trì → khấu hao → kiểm kê → thanh lý), báo cáo & trình thiết kế (4 định dạng kết xuất, mọi mẫu hệ thống phải ra dữ liệu), 9 chứng từ in, **quét mã QR/mã vạch** (bộ sinh QR, tra cứu mã, luồng quét kiểm kê, tem có mã QR), và phân hệ quản trị (sao lưu, xuất CSDL/SQL, nhật ký, phiên, đặt lại mật khẩu, khoá/mở tài khoản).
 
 ---
 
@@ -268,6 +268,8 @@ curl -b cookie.txt "http://localhost:3000/api/entities/assets?q=may%20phay&sort=
 - Mật khẩu băm bằng **scrypt** (salt riêng cho từng người dùng); chính sách độ dài tối thiểu, bắt buộc đổi mật khẩu sau khi được cấp lại; khoá tài khoản sau N lần sai.
 - Phiên đăng nhập lưu phía máy chủ, token ký **HMAC-SHA256** bằng khoá bí mật sinh một lần trong `data/.secret.key`, cookie `HttpOnly` + `SameSite=Lax`, có thời hạn và thu hồi từ xa.
 - Phân quyền 2 lớp: **phân hệ × hành động** và **phạm vi dữ liệu** (toàn hệ thống / phòng ban / chỉ dữ liệu của mình).
+- **Xác thực hai đường**: ngoài cookie, ứng dụng gửi kèm `Authorization: Bearer <token>` cho mọi lời gọi API và lưu token vào **bộ lưu trữ an toàn** (tự chuyển sang bộ nhớ tạm nếu trình duyệt chặn `localStorage`). Nhờ vậy app vẫn chạy khi cookie không dùng được — **khung nhúng sandbox/iframe**, chế độ ẩn danh chặn cookie, hoặc truy cập qua proxy. Máy chủ trả `Access-Control-Allow-Origin: *` cho `Origin: null` để khung nhúng sandbox không bị chặn CORS.
+- Mở tài liệu/báo cáo **trực tiếp bằng trình duyệt** khi phiên đã hết hạn sẽ nhận **trang HTML tiếng Việt** ("Phiên làm việc đã hết hạn — lỗi 401" kèm nút *Đăng nhập lại* / *Quay lại*) thay vì JSON thô.
 - Nhật ký ghi vết mọi thao tác kèm IP, đường dẫn, phương thức, HTTP status và diff dữ liệu.
 - Phục vụ tệp tĩnh có chống thoát thư mục (traversal); tệp CSDL và khoá bí mật không bao giờ được phục vụ qua HTTP.
 
