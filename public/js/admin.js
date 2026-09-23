@@ -509,7 +509,7 @@
       }));
       host.querySelectorAll('[data-dl]').forEach((b) => (b.onclick = async () => {
         try {
-          const res = await fetch('/api/admin/db/export', { credentials: 'same-origin' });
+          const res = await fetch('/api/admin/db/export', API.withAuth({}));
           const blob = await res.blob();
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);

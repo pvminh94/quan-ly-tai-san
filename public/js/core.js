@@ -4,6 +4,31 @@
 (function () {
   'use strict';
 
+  /**
+   * Bộ lưu trữ an toàn: dùng localStorage khi có, tự chuyển sang bộ nhớ tạm nếu
+   * trình duyệt chặn (khung nhúng sandbox, chế độ riêng tư…). Nhờ vậy ứng dụng
+   * không bao giờ lỗi vì không truy cập được bộ lưu trữ.
+   */
+  const memoryStore = {};
+  const safeStore = {
+    available: (() => {
+      try { window.localStorage.setItem('ams.test', '1'); window.localStorage.removeItem('ams.test'); return true; } catch (e) { return false; }
+    })(),
+    /** Ghi vào bộ nhớ tạm trước, sau đó cố ghi vào localStorage (nếu có) */
+    get(key) {
+      try { const v = window.localStorage.getItem(key); return v === null ? (key in memoryStore ? memoryStore[key] : null) : v; }
+      catch (e) { return key in memoryStore ? memoryStore[key] : null; }
+    },
+    set(key, value) {
+      memoryStore[key] = String(value);
+      try { window.localStorage.setItem(key, String(value)); } catch (e) { /* dùng bộ nhớ tạm */ }
+    },
+    remove(key) {
+      delete memoryStore[key];
+      try { window.localStorage.removeItem(key); } catch (e) { /* dùng bộ nhớ tạm */ }
+    },
+  };
+
   const App = {
     state: {
       user: null,
@@ -15,12 +40,14 @@
       notifications: [],
       route: { name: '', params: {}, query: {} },
       cache: {},
-      sidebarCollapsed: localStorage.getItem('ams.sidebar') === '1',
-      theme: localStorage.getItem('ams.theme') || 'light',
+      sidebarCollapsed: safeStore.get('ams.sidebar') === '1',
+      theme: safeStore.get('ams.theme') || 'light',
+      token: safeStore.get('ams.token') || null,
     },
     bus: {},
   };
   window.App = App;
+  App.store = safeStore;
 
   /* ------------------------------ Tiện ích ------------------------------ */
   const U = {
@@ -142,9 +169,22 @@
 
   /* ------------------------------ API client ------------------------------ */
   const api = {
+    /**
+     * Gửi kèm token phiên (nếu có) để hoạt động cả khi cookie bị chặn —
+     * ví dụ khi ứng dụng được xem trong khung nhúng sandbox hoặc trình duyệt
+     * chặn cookie của bên thứ ba.
+     */
+    withAuth(init) {
+      const o = init || {};
+      o.credentials = o.credentials || 'same-origin';
+      o.headers = o.headers || {};
+      const tk = App.state && App.state.token;
+      if (tk && !o.headers.Authorization) o.headers.Authorization = 'Bearer ' + tk;
+      return o;
+    },
     async request(method, path, body, opts) {
       const o = opts || {};
-      const init = { method, credentials: 'same-origin', headers: {} };
+      const init = api.withAuth({ method, headers: {} });
       if (body instanceof FormData) init.body = body;
       else if (body !== undefined) {
         init.headers['Content-Type'] = 'application/json';
@@ -181,7 +221,7 @@
     del(p, opts) { return api.request('DELETE', p, undefined, opts); },
     /** Tải file (CSV, DOCX, XLSX, SQL...) */
     async download(path, method, body, filename) {
-      const init = { method: method || 'GET', credentials: 'same-origin' };
+      const init = api.withAuth({ method: method || 'GET' });
       if (body) { init.method = method || 'POST'; init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(body); }
       const res = await fetch(path, init);
       if (!res.ok) {
@@ -208,7 +248,7 @@
       const win = window.open('', '_blank');
       if (win) win.document.write('<html lang="vi"><head><title>Đang tạo…</title><style>body{font-family:sans-serif;padding:40px;color:#64748b}</style></head><body><h3>⏳ Đang tạo tài liệu, vui lòng đợi…</h3></body></html>');
       try {
-        const init = { method: method || 'GET', credentials: 'same-origin' };
+        const init = api.withAuth({ method: method || 'GET' });
         if (body) { init.method = method || 'POST'; init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(body); }
         const res = await fetch(path, init);
         const html = await res.text();
@@ -290,10 +330,10 @@
   /* ------------------------------ Lưu trữ ưa thích ------------------------------ */
   App.pref = {
     get(key, def) {
-      try { const v = localStorage.getItem('ams.pref.' + key); return v === null ? def : JSON.parse(v); } catch (e) { return def; }
+      try { const v = safeStore.get('ams.pref.' + key); return v === null ? def : JSON.parse(v); } catch (e) { return def; }
     },
-    set(key, val) { try { localStorage.setItem('ams.pref.' + key, JSON.stringify(val)); } catch (e) {} },
-    remove(key) { try { localStorage.removeItem('ams.pref.' + key); } catch (e) {} },
+    set(key, val) { safeStore.set('ams.pref.' + key, JSON.stringify(val)); },
+    remove(key) { safeStore.remove('ams.pref.' + key); },
   };
 
   /* ------------------------------ Router (hash-based) ------------------------------ */

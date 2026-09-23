@@ -198,14 +198,14 @@
         rows = res.data || [];
       } catch (e) { rows = []; }
       S.stocktakes = rows;
-      const saved = String(q.stocktake || localStorage.getItem(storeKey) || '');
+      const saved = String(q.stocktake || App.store.get(storeKey) || '');
       const chosen = rows.find((s) => String(s.id) === saved) || rows[0] || null;
       elSk.innerHTML = rows.length
         ? rows.map((s) => `<option value="${s.id}" ${chosen && String(chosen.id) === String(s.id) ? 'selected' : ''}>${U.esc(s.code)} — ${U.esc(s.name)} (${s.countedItems || 0}/${s.totalItems || 0})</option>`).join('')
         : '<option value="">— Không có đợt kiểm kê đang mở —</option>';
       S.current = chosen;
       $('scan-open-count').setAttribute('href', chosen ? `#/stocktakes/${chosen.id}/count` : '#/stocktakes');
-      if (chosen) localStorage.setItem(storeKey, String(chosen.id));
+      if (chosen) App.store.set(storeKey, String(chosen.id));
       return chosen;
     }
 
@@ -424,7 +424,7 @@
           const match = S.stocktakes.find((s) => String(s.code).toUpperCase() === String(parsed.stocktakeCode).toUpperCase());
           if (match && (!S.current || String(match.id) !== String(S.current.id))) {
             S.current = match; elSk.value = String(match.id);
-            localStorage.setItem(storeKey, String(match.id));
+            App.store.set(storeKey, String(match.id));
             await loadItems(); await loadHistory();
             setStatus('Đã chuyển sang đợt kiểm kê <b class="mono">' + U.esc(match.code) + '</b> theo mã QR.', 'ok');
           }
@@ -615,7 +615,7 @@
 
     elSk.onchange = async () => {
       S.current = S.stocktakes.find((s) => String(s.id) === elSk.value) || null;
-      if (S.current) localStorage.setItem(storeKey, String(S.current.id));
+      if (S.current) App.store.set(storeKey, String(S.current.id));
       $('scan-open-count').setAttribute('href', S.current ? `#/stocktakes/${S.current.id}/count` : '#/stocktakes');
       S.session = { scans: 0, counted: 0, duplicates: 0, diffs: 0 };
       setStatus('Đã chọn đợt kiểm kê ' + (S.current ? '<b class="mono">' + U.esc(S.current.code) + '</b>' : 'không'));

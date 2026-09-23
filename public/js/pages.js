@@ -1001,11 +1001,11 @@
       UI.loading(true, 'Đang tạo báo cáo…');
       try {
         // Lấy HTML qua fetch rồi mở tab để tránh mất cookie trong popup
-        const res = await fetch('/api/reports/render', {
-          method: 'POST', credentials: 'same-origin',
+        const res = await fetch('/api/reports/render', API.withAuth({
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ templateId: template.id, format: 'html', params }),
-        });
+        }));
         const html = await res.text();
         UI.loading(false);
         const win = window.open('', '_blank');

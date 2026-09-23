@@ -11,10 +11,11 @@
   App.showLogin = function () {
     App.state.user = null;
     App.state.token = null;
+    App.store.remove('ams.token');
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').classList.remove('hidden');
     document.getElementById('password').value = '';
-    const u = localStorage.getItem('ams.lastUser');
+    const u = App.store.get('ams.lastUser');
     if (u) document.getElementById('username').value = u;
   };
 
@@ -31,7 +32,8 @@
       const res = await API.post('/api/auth/login', { username, password }, { silent: true });
       App.state.user = res.data.user;
       App.state.token = res.data.token;
-      localStorage.setItem('ams.lastUser', username);
+      App.store.set('ams.token', res.data.token);
+      App.store.set('ams.lastUser', username);
       if (App.state.user.mustChangePassword) {
         setTimeout(() => {
           UI.toast('Yêu cầu đổi mật khẩu', 'Vì lý do bảo mật, vui lòng đổi mật khẩu ngay.', 'warning', 8000);
@@ -56,7 +58,7 @@
     App.state.token = null;
     App.state.permissions = {};
     App.state.notifications = [];
-    try { localStorage.removeItem('ams.pref.pendingSort'); } catch (e) {}
+    App.store.remove('ams.pref.pendingSort');
     document.getElementById('user-dropdown').classList.add('hidden');
     const sr = document.getElementById('search-results');
     if (sr) sr.classList.add('hidden');
@@ -337,6 +339,20 @@
   }
 
   async function restoreSession() {
+    if (App.state.token) {
+      // Có token đã lưu (ví dụ phiên trước trong khung nhúng sandbox không giữ được cookie)
+      try {
+        const res = await API.get('/api/auth/me', { silent: true });
+        App.state.user = res.data.user;
+        App.state.permissions = res.data.permissions || {};
+        await boot(false);
+        return true;
+      } catch (e) {
+        // token cũ/hết hạn → bỏ để lần sau không gửi token rác
+        App.state.token = null;
+        App.store.remove('ams.token');
+      }
+    }
     try {
       const res = await API.get('/api/auth/me', { silent: true });
       App.state.user = res.data.user;
@@ -380,13 +396,13 @@
     document.getElementById('toggle-sidebar').onclick = () => {
       App.state.sidebarCollapsed = !App.state.sidebarCollapsed;
       document.body.classList.toggle('sidebar-collapsed', App.state.sidebarCollapsed);
-      localStorage.setItem('ams.sidebar', App.state.sidebarCollapsed ? '1' : '0');
+      App.store.set('ams.sidebar', App.state.sidebarCollapsed ? '1' : '0');
     };
     document.getElementById('open-sidebar').onclick = () => document.body.classList.toggle('sidebar-open');
     document.getElementById('menu-search').oninput = (e) => buildNav(e.target.value);
     document.getElementById('btn-theme').onclick = () => {
       App.state.theme = App.state.theme === 'dark' ? 'light' : 'dark';
-      localStorage.setItem('ams.theme', App.state.theme);
+      App.store.set('ams.theme', App.state.theme);
       applyTheme();
     };
     document.getElementById('btn-notifications').onclick = (e) => showNotificationPanel(e.currentTarget);

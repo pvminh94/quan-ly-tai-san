@@ -60,9 +60,11 @@ function request(method, url, body, opts) {
   return new Promise((resolve, reject) => {
     const payload = body === undefined || body === null ? null : typeof body === 'string' ? body : JSON.stringify(body);
     const headers = Object.assign(
-      { Accept: o.accept || 'application/json' },
+      { Accept: o.acceptHTML ? 'text/html,application/xhtml+xml' : (o.accept || 'application/json') },
       payload ? { 'Content-Type': o.contentType || 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {},
-      jar ? { Cookie: jar } : {}
+      o.token ? { Authorization: 'Bearer ' + o.token } : {},
+      o.origin ? { Origin: o.origin } : {},
+      !o.noCookie && jar ? { Cookie: jar } : {}
     );
     const req = http.request({ host: '127.0.0.1', port: PORT, path: url, method, headers }, (res) => {
       const chunks = [];
@@ -195,6 +197,24 @@ async function testAuth() {
   check('Nhân viên không vào được API quản trị → 403', deniedAdmin.status === 403, 'status=' + deniedAdmin.status);
   await POST('/api/auth/logout', {}, { jar: lowCookie, saveCookie: false });
   await POST('/api/auth/login', { username: 'admin', password: 'Admin@123' });   // khôi phục phiên admin cho các bước sau
+  // -- Xác thực bằng token (dùng khi cookie bị chặn: khung nhúng sandbox, trình duyệt chặn cookie) --
+  const loginRes = await POST('/api/auth/login', { username: 'admin', password: 'Admin@123' }, { saveCookie: false });
+  const tok = ((loginRes.json || {}).data || {}).token;
+  check('Đăng nhập trả về token phiên', !!tok && tok.split('.').length === 2 && tok.length > 60, tok ? tok.length + ' ký tự' : 'không có token');
+
+  const noAuth = await GET('/api/meta', { noCookie: true });
+  check('Không có phiên → API trả 401', noAuth.status === 401, 'HTTP ' + noAuth.status);
+
+  const bearer = await GET('/api/meta', { noCookie: true, token: tok });
+  check('Xác thực bằng Authorization: Bearer (không cần cookie)', bearer.status === 200 && !!((bearer.json || {}).data || {}).entities, 'HTTP ' + bearer.status);
+
+  const htmlProbe = await GET('/api/documents/label/1', { noCookie: true, acceptHTML: true, raw: true });
+  const htmlBody = htmlProbe.body ? htmlProbe.body.toString() : '';
+  check('Mở tài liệu bằng trình duyệt khi hết phiên → trang HTML tiếng Việt', htmlProbe.status === 401 && /text\/html/.test(htmlProbe.headers['content-type'] || '') && /Phiên làm việc đã hết hạn/.test(htmlBody) && /Đăng nhập lại/.test(htmlBody), 'HTTP ' + htmlProbe.status);
+
+  const corsProbe = await GET('/api/health', { noCookie: true, origin: 'null' });
+  check('Cho phép khung nhúng sandbox (Origin: null) qua CORS', corsProbe.headers['access-control-allow-origin'] === '*', String(corsProbe.headers['access-control-allow-origin']));
+
 }
 
 async function testCrud() {

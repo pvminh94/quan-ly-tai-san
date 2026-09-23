@@ -31,6 +31,46 @@ if (store.isEmpty()) {
   console.log('[init] Đã tạo:', JSON.stringify(result.counts || {}, null, 0));
 }
 
+/**
+ * Trang thông báo hết phiên cho các yêu cầu mở trực tiếp bằng trình duyệt
+ * (ví dụ bấm in/nhãn tem mở tab mới sau khi phiên đã hết hạn).
+ */
+function sessionExpiredPage(pathname) {
+  const back = '/';
+  return `<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Phiên làm việc đã hết hạn — AMS Pro</title>
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#eef2f7;
+       font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#0f172a;padding:24px}
+  .box{background:#fff;border-radius:16px;box-shadow:0 18px 40px rgba(15,23,42,.12);padding:32px 34px;max-width:520px;width:100%;text-align:center}
+  .icon{font-size:40px;line-height:1}
+  h1{font-size:19px;margin:14px 0 8px}
+  p{margin:0 0 6px;color:#475569;font-size:14px;line-height:1.6}
+  code{background:#f1f5f9;border-radius:6px;padding:2px 6px;font-size:12.5px;color:#334155;word-break:break-all}
+  .row{display:flex;gap:10px;justify-content:center;margin-top:22px;flex-wrap:wrap}
+  a.btn{display:inline-block;padding:11px 20px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;background:#2563eb;color:#fff}
+  a.btn.ghost{background:#f1f5f9;color:#0f172a}
+  .hint{margin-top:18px;font-size:12.5px;color:#94a3b8}
+</style></head>
+<body>
+  <div class="box">
+    <div class="icon">🔒</div>
+    <h1>Phiên làm việc đã hết hạn (lỗi 401)</h1>
+    <p>Tài liệu bạn yêu cầu cần đăng nhập lại mới xem được:</p>
+    <p><code>${String(pathname || '').replace(/[<>&"]/g, '')}</code></p>
+    <div class="row">
+      <a class="btn" href="${back}">Đăng nhập lại</a>
+      <a class="btn ghost" href="javascript:history.back()">Quay lại</a>
+    </div>
+    <div class="hint">Mẹo: hãy in/nhãn tem từ trong ứng dụng để tab mới giữ được phiên đăng nhập.</div>
+  </div>
+</body></html>`;
+}
+
 /* ------------------------------ Router ------------------------------ */
 const router = new httpLib.Router();
 routes.register(router);
@@ -42,9 +82,14 @@ async function handleRequest(req, res) {
   const parsed = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = parsed.pathname;
 
-  // CORS nhẹ cho phép tích hợp ngoài (ví dụ mở báo cáo ở tab khác)
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  // CORS nhẹ cho phép tích hợp ngoài (ví dụ mở báo cáo ở tab khác).
+  // Ứng dụng cũng chạy được trong khung nhúng sandbox — khi đó trình duyệt gửi
+  // "Origin: null"; trả về "*" (không dùng cookie, xác thực bằng token) để không
+  // bị chặn CORS.
+  const reqOrigin = req.headers.origin;
+  res.setHeader('Access-Control-Allow-Origin', reqOrigin && reqOrigin !== 'null' ? reqOrigin : '*');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   if (req.method === 'OPTIONS') {
@@ -61,7 +106,15 @@ async function handleRequest(req, res) {
       let user = null;
       if (!PUBLIC_PATHS.includes(pathname)) {
         user = routes.loadUserFromRequest(req);
-        if (!user) return httpLib.sendError(res, 401, 'Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+        if (!user) {
+          // Mở trực tiếp bằng trình duyệt (tab mới, in ấn…) → trả trang HTML dễ hiểu
+          // thay vì JSON thô, kèm nút quay lại đăng nhập.
+          if (req.method === 'GET' && String(req.headers.accept || '').includes('text/html')) {
+            res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+            return res.end(sessionExpiredPage(pathname));
+          }
+          return httpLib.sendError(res, 401, 'Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+        }
       } else {
         user = routes.loadUserFromRequest(req);
       }

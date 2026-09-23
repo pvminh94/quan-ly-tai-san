@@ -480,6 +480,37 @@ async function waitFor(fn, timeout, step) {
     }
   } catch (e) { bad('Luồng quét mã lỗi', e.message); }
 
+  // ---- phiên làm việc khi cookie bị chặn (khung nhúng sandbox, trình duyệt chặn cookie) ----
+  try {
+    if (window.App.state.token) ok('Đăng nhập có lưu token dự phòng cho trường hợp cookie bị chặn');
+    else bad('Không lưu token phiên sau khi đăng nhập');
+
+    const api = window.App.api;
+    if (api && typeof api.withAuth === 'function') {
+      const probe = api.withAuth({ headers: {} });
+      if (probe.headers && /^Bearer /.test(probe.headers.Authorization || '')) ok('Mọi lời gọi API được gắn Authorization: Bearer');
+      else bad('withAuth không gắn token', JSON.stringify(probe.headers));
+    } else bad('Thiếu API.withAuth để gắn token vào yêu cầu');
+
+    if (typeof window.App.store === 'object' && window.App.store && typeof window.App.store.get === 'function') ok('Có bộ lưu trữ an toàn (tự chuyển sang bộ nhớ tạm khi bị chặn)');
+    else bad('Thiếu bộ lưu trữ an toàn App.store');
+
+    // Xoá sạch cookie như môi trường sandbox rồi gọi API xem còn dùng được không
+    const backup = JSON.stringify(cookieJar);
+    Object.keys(cookieJar).forEach((k) => delete cookieJar[k]);
+    let stillWorks = false;
+    let errMsg = '';
+    try {
+      const r = await api.get('/api/meta');
+      stillWorks = !!(r && r.data && r.data.entities);
+    } catch (e) { errMsg = e.message; }
+    if (stillWorks) ok('Cookie bị chặn vẫn dùng được ứng dụng (xác thực bằng token)');
+    else bad('Mất cookie là ứng dụng hỏng (đúng lỗi 401 người dùng gặp)', errMsg);
+
+    Object.keys(cookieJar).forEach((k) => delete cookieJar[k]);
+    Object.assign(cookieJar, JSON.parse(backup));
+  } catch (e) { bad('Kiểm thử phiên không cookie lỗi', e.message); }
+
   // ---- đăng xuất (chạy cuối vì sẽ kết thúc phiên) ----
   try {
     doc.getElementById('user-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

@@ -1169,11 +1169,11 @@
   async function preview() {
     UI.loading(true, 'Đang tạo bản xem trước…');
     try {
-      const res = await fetch('/api/reports/preview', {
-        method: 'POST', credentials: 'same-origin',
+      const res = await fetch('/api/reports/preview', API.withAuth({
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ design: D.design, dataset: D.template.dataset, name: D.template.name, limit: 300 }),
-      });
+      }));
       const html = await res.text();
       UI.loading(false);
       const m = UI.modal({
@@ -1197,11 +1197,11 @@
     if (format === 'html') {
       UI.loading(true, 'Đang chuẩn bị bản in…');
       try {
-        const res = await fetch('/api/reports/render', {
-          method: 'POST', credentials: 'same-origin',
+        const res = await fetch('/api/reports/render', API.withAuth({
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ design: D.design, dataset: D.template.dataset, name: D.template.name, format: 'html' }),
-        });
+        }));
         const html = await res.text();
         UI.loading(false);
         const win = window.open('', '_blank');
